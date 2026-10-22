@@ -1,0 +1,13 @@
+seed: 0
+docs_per_family: 2000
+families: [A, B, C, D]            # A=zorp (substitution), B=blick (positional), C/D look-alike distractors
+causal_families: [A, B]
+train_lengths: [3, 4]             # RL prompts at the edge of competence (non-zero base success)
+eval_lengths: [6, 7, 8]           # U-type: longer inputs never seen in RL
+n_train_tasks: 4000
+n_eval_tasks: 500
+generic_corpus: HuggingFaceFW/fineweb-edu
+generic_tokens: 50000000
+base_model: HuggingFaceTB/SmolLM2-135M
+grpo_seeds: [0, 1, 2]
+lds_subsets: 20

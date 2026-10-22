@@ -1,0 +1,18 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv*/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Generated artifacts are tracked with DVC or uploaded to the Hub, never committed.
+artifacts/
+runs/
+wandb/
+*.parquet
+*.arrow
+
+.DS_Store
+.env

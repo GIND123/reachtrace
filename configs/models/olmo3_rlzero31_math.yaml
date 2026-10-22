@@ -1,0 +1,28 @@
+# Primary pair. Revisions are resolved to SHAs by `reachtrace pin` into configs/pins.lock.yaml.
+pair: olmo3_base_vs_rlzero31_math
+base:
+  id: allenai/Olmo-3-1025-7B
+  revision: main
+rl:
+  id: allenai/Olmo-3.1-7B-RL-Zero-Math
+  revision: main
+template_id: rlzero31_math        # "Solve the following problem step by step..." (3.1 wording)
+base_seed: 20261022
+decode:
+  temperature: 1.0                # RL-Zero trains and evaluates pass@k at T=1.0 (Olmo 3 report §6.1)
+  top_p: 1.0
+  max_tokens: 16384               # training response length; report evaluates at 32K
+  max_model_len: 18432
+sampling:
+  min_n: 32
+  batch: 32
+  stop_correct: 8
+  n_max: 288                      # >= n_to_certify(64) = 277, rounded up to a multiple of batch
+reach:
+  ksweep: [1, 4, 16, 64]          # certified mode; K=256/1024 are reported in observed mode only
+  mode: certified
+  gamma: 0.5
+  alpha: 0.05
+cues:                             # cue-forcing arm (Wang et al., arXiv 2610.06851)
+  - ".\n\nOkay"
+  - "\n\nAlright,"

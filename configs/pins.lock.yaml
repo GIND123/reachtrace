@@ -1,0 +1,18 @@
+resolved_at: '2026-10-22T23:29:47.625049+00:00'
+repos:
+  allenai/Olmo-3-1025-7B:
+    main: a81bae42db3975be1671e27b9c9a56da1a9f980f
+    stage1-step1413814: 373bad25002f1624757a73235c5ca844c6375c25
+    stage2-step47684: c3c800dc900f3fecc112e8cd6b2a13edabc096e1
+    stage3-step11921: 4b32e100e6d94c5903b9680b6662c45089c534e4
+    stage2-step47684-mix-gen-mc-only-from-2T-ckpt: 45786899c6c427d17f9291f3d97c7e4fcbd4962b
+    stage2-step47684-mix-math-code-reasoning-web-from-2T-ckpt: ab9f4b070e9125de257bfbe31bf8cc777daadfb4
+    stage2-step47684-mix-round5-from-2T-ckpt: 34e13d5fae4d1aacf4aa019c377a332ed09ff136
+  allenai/Olmo-3.1-7B-RL-Zero-Math:
+    main: 364820b002fc8e81d11a81c7fc9dd6b49c83cd05
+    step_0100: 0a45720ccbf23c0aa255a28119787538a48dd56b
+    step_0200: d260e9eb7e8eb0ab9cc1ef3ce1eeaee008cc602a
+    step_0400: 897c0ce4b2e39f6802515f3c1a4e1cf53995af78
+    step_0800: 8ccd1803355e237a2f74de6d6a389717ce66e7e1
+    step_1600: b3e3920ee1e9414472664938b829c5c8de1aaa61
+    step_2800: 966de0160b10f47eddcc08ea8a7b8133da3328ba
