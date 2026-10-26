@@ -1,0 +1,38 @@
+{"step": "download", "usd": 0.0033602904103279116}
+{"step": "download", "usd": 0.004500980940914154}
+{"step": "download", "usd": 0.0020737032297134398}
+{"step": "download", "usd": 0.003473021426296234}
+{"step": "download", "usd": 0.005383405306816101}
+{"step": "download", "usd": 0.0034708186120033266}
+{"step": "download", "usd": 0.006031904917049408}
+{"step": "sample:gen_base_1", "out": "pilot/gen_base_1.parquet", "samples": 1984, "gen_tokens": 6995949, "load_s": 103.34280204772949, "seconds": 4676.377259016037, "tok_per_s": 1529.8264349046615, "usd": 5.129985853140593}
+{"step": "sample:gen_rl_1", "out": "pilot/gen_rl_1.parquet", "samples": 1984, "gen_tokens": 13837837, "load_s": 128.5933017730713, "seconds": 10472.839878082275, "tok_per_s": 1337.7327094746515, "usd": 11.488705346256257}
+{"step": "ledger:s1_end", "skipped": 0, "tokens": 421672, "load_s": 47.1649067401886, "seconds": 62.20148181915283, "usd": 0.06823502555561066}
+{"step": "ledger:s2_end", "skipped": 0, "tokens": 421672, "load_s": 44.54927086830139, "seconds": 59.360432147979736, "usd": 0.06511839406633378}
+{"step": "ledger:s3_end", "skipped": 0, "tokens": 421672, "load_s": 47.91303992271423, "seconds": 62.67567753791809, "usd": 0.06875521825909615}
+{"step": "ledger:rl_0200", "skipped": 0, "tokens": 421672, "load_s": 48.09165048599243, "seconds": 63.06839609146118, "usd": 0.06918603051233292}
+{"step": "ledger:rl_end", "skipped": 0, "tokens": 421672, "load_s": 47.881900787353516, "seconds": 62.66431784629822, "usd": 0.06874275667738915}
+{"step": "download", "usd": 0.0021114612522125245}
+{"step": "download", "usd": 0.0035349206303596495}
+{"step": "download", "usd": 1.8371777534484864e-05}
+{"step": "download", "usd": 0.003912742547512054}
+{"step": "download", "usd": 2.3313311576843262e-06}
+{"step": "download", "usd": 0.00905732615261078}
+{"step": "download", "usd": 1.3000442218780518e-05}
+{"step": "download", "usd": 2.726235361099243e-05}
+{"step": "download", "usd": 1.343586540222168e-05}
+{"step": "download", "usd": 2.52373291015625e-05}
+{"step": "download", "usd": 2.711017475128174e-05}
+{"step": "ledger_v2_failed_estimate", "usd": 0.65, "note": "arm checkpoints olmo2-retrofit failed; 7 containers ~1 min each, not logged by the job"}
+{"step": "ledger:s1_mid", "skipped": 0, "tokens": 869540, "load_s": 57.89514446258545, "seconds": 86.25033521652222, "usd": 0.09461661773252487}
+{"step": "ledger:s1_end", "skipped": 0, "tokens": 869540, "load_s": 42.993224143981934, "seconds": 70.9363784790039, "usd": 0.07781720719146729}
+{"step": "ledger:s2_end", "skipped": 0, "tokens": 869540, "load_s": 54.74302697181702, "seconds": 83.86334109306335, "usd": 0.09199808517909051}
+{"step": "ledger:s3_end", "skipped": 0, "tokens": 869540, "load_s": 43.06019568443298, "seconds": 70.84418654441833, "usd": 0.07771607263922692}
+{"step": "ledger:rl_0200", "skipped": 0, "tokens": 869540, "load_s": 44.597039222717285, "seconds": 72.20134472846985, "usd": 0.07920487516713143}
+{"step": "ledger:rl_0800", "skipped": 0, "tokens": 869540, "load_s": 46.13650703430176, "seconds": 73.86492013931274, "usd": 0.08102981739282608}
+{"step": "ledger:rl_end", "skipped": 0, "tokens": 869540, "load_s": 38.68891477584839, "seconds": 67.22273302078247, "usd": 0.07374333812379838}
+{"step": "ledger:s1_2T", "skipped": 0, "tokens": 869540, "load_s": 50.53665328025818, "seconds": 79.35353398323059, "usd": 0.08705082677960396}
+{"step": "ledger:arm_round5", "skipped": 0, "tokens": 869540, "load_s": 103.531653881073, "seconds": 131.40949821472168, "usd": 0.1441562195415497}
+{"step": "ledger:arm_gen_mc_only", "skipped": 0, "tokens": 869540, "load_s": 61.26957869529724, "seconds": 88.40616965293884, "usd": 0.09698156810927391}
+{"step": "ledger:arm_math_code_reasoning_web", "skipped": 0, "tokens": 869540, "load_s": 84.97491812705994, "seconds": 112.15455222129822, "usd": 0.12303354378676416}
+{"step": "handoff:handoff_base", "out": "pilot/handoff_base.parquet", "samples": 512, "gen_tokens": 1731319, "load_s": 91.67468738555908, "seconds": 1188.4791235923767, "tok_per_s": 1578.5120326350832, "usd": 1.3037615985808373}

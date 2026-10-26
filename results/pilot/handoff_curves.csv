@@ -1,0 +1,17 @@
+problem_id,group,s@-0.01,s@0,s@0.25,s@0.5,s@0.75,handoff,composition
+aime26/default/20,G,0.0,0.0,0.5,0.625,0.625,0.25,False
+aime26/default/21,B,0.0625,0.0,0.0,0.25,0.625,0.5,False
+aime26/default/25,B,0.125,0.0,0.0,0.625,1.0,0.5,False
+aime26/default/3,G,0.0,0.0,0.0,0.25,0.75,0.5,False
+aime26/default/4,G,0.0,0.0,0.0,0.25,0.375,0.5,False
+aime26/default/5,B,0.125,0.125,0.875,0.875,0.875,0.25,False
+hmmt_feb26/default/24,B,0.0625,0.25,0.375,0.75,1.0,0.0,False
+hmmt_feb26/default/4,G,0.0,0.125,0.5,0.625,1.0,0.25,True
+math500/default/test/algebra/733.json,G,0.0,0.375,0.75,0.625,1.0,0.0,True
+math500/default/test/counting_and_probability/765.json,B,0.0625,0.125,0.25,1.0,0.875,0.25,False
+omni_math/default/2055,B,0.0625,0.125,0.25,0.75,0.875,0.25,False
+omni_math/default/2211,B,0.0625,0.0,0.125,0.25,0.125,0.5,False
+omni_math/default/2309,B,0.125,0.0,0.125,0.375,0.625,0.5,False
+omni_math/default/2564,B,0.125,0.75,0.75,1.0,1.0,0.0,False
+omni_math/default/845,B,0.125,0.0,0.25,0.875,1.0,0.25,False
+omni_math/default/943,B,0.0625,0.125,0.25,0.875,0.75,0.25,False
