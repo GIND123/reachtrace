@@ -3,6 +3,12 @@
 Extraction follows the training reward: text after the last "Answer:". A trailing
 \\boxed{} is the fallback. Equivalence tries normalized string match, then numeric match,
 then math-verify when installed (`pip install reachtrace[grade]`).
+
+Base models often finish a solution and then write a new problem of their own ("\\nProblem
+2: ..."), sometimes with its own "Answer:" line. Responses are therefore cut at the first
+new-problem marker before extraction, for both models. `grade_lenient` accepts any of
+several candidate answers; it is a robustness check, used so that a problem only counts
+as unsolved by the base if it is unsolved under both graders.
 """
 
 from __future__ import annotations
@@ -12,6 +18,11 @@ from dataclasses import dataclass
 from fractions import Fraction
 
 _ANSWER_RE = re.compile(r"Answer\s*:")
+_NEW_PROBLEM_RE = re.compile(
+    r"\n[ \t]*(?:#+[ \t]*)?(?:Problem(?:[ \t]*\d+)?[ \t]*[:.\n]|Solve the following|Question[ \t]*:"
+    r"|Remember to put your answer)"
+)
+_NUMBER_RE = re.compile(r"-?\\frac\{-?\d+\}\{-?\d+\}|-?\d+(?:,\d{3})*(?:\.\d+)?(?:/\d+)?")
 _FRAC_RE = re.compile(r"^-?\\frac\{(-?\d+)\}\{(-?\d+)\}$")
 _STRIP = ["\\left", "\\right", "\\!", "\\,", "\\;", "\\:", "\\ ", "$", " "]
 
@@ -108,9 +119,37 @@ def is_equiv(pred: str, gold: str) -> tuple[bool, str]:
     return False, "no_match"
 
 
-def grade(text: str, gold: str) -> Grade:
-    extracted, how = extract_answer(text)
+def truncate_new_problem(text: str) -> str:
+    """Cut a response at the first marker of a new, self-generated problem."""
+    m = _NEW_PROBLEM_RE.search(text)
+    return text[: m.start()] if m else text
+
+
+def grade(text: str, gold: str, truncate: bool = True) -> Grade:
+    extracted, how = extract_answer(truncate_new_problem(text) if truncate else text)
     if extracted is None:
         return Grade(None, False, how)
     ok, match = is_equiv(extracted, gold)
     return Grade(extracted, ok, f"{how}+{match}")
+
+
+def answer_candidates(text: str) -> list[str]:
+    """First and last answer lines, the last \\boxed{}, and the last number in the response."""
+    body = truncate_new_problem(text)
+    out = []
+    matches = list(_ANSWER_RE.finditer(body))
+    for m in matches[:1] + matches[-1:]:
+        line = next((ln.strip() for ln in body[m.end() :].split("\n") if ln.strip()), "")
+        if line:
+            out.append(line)
+    if (b := last_boxed(body)) is not None:
+        out.append(b.strip())
+    nums = _NUMBER_RE.findall(body)
+    if nums:
+        out.append(nums[-1])
+    return list(dict.fromkeys(out))
+
+
+def grade_lenient(text: str, gold: str) -> bool:
+    """True if any answer candidate matches; an upper bound on correctness, not the label."""
+    return any(is_equiv(c, gold)[0] for c in answer_candidates(text))

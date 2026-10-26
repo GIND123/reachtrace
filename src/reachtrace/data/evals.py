@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from ..sample.grade import last_boxed
+from ..sample.grade import _as_number, last_boxed, normalize
 
 MATH_SUBJECTS = [
     "algebra",
@@ -51,6 +51,25 @@ def _olympiad_answer(r: dict) -> str:
     fa = r["final_answer"]
     vals = ast.literal_eval(fa) if isinstance(fa, str) else fa
     return str(vals[0])
+
+
+def is_numeric_answer(ans: str) -> bool:
+    """Integers, decimals and simple fractions: answers the grader checks without ambiguity."""
+    return _as_number(normalize(str(ans))) is not None
+
+
+def _matharena(hf_id: str, tags: list[str]) -> EvalSpec:
+    # MathArena sets (CC-BY-NC-SA-4.0): columns problem_idx, problem, answer[, problem_type].
+    return EvalSpec(
+        hf_id,
+        ["default"],
+        "train",
+        "problem",
+        answer=lambda r: str(r["answer"]),
+        native_id=lambda r, i: str(r["problem_idx"]),
+        subject=lambda r: r.get("problem_type"),
+        tags=tags,
+    )
 
 
 EVAL_SETS: dict[str, EvalSpec] = {
@@ -129,7 +148,49 @@ EVAL_SETS: dict[str, EvalSpec] = {
         answer=lambda r: r["answer"].split("####")[-1].strip(),
         tags=["calibration"],
     ),
+    # Post-cutoff for every Olmo 3 stage (released Nov 2025): the cleanest stratum.
+    "aime26": _matharena("MathArena/aime_2026", ["date_clean"]),
+    "hmmt_feb26": _matharena("MathArena/hmmt_feb_2026", ["date_clean"]),
+    # 2025 competitions: after the pretraining cutoffs, but check against Dolci's sources.
+    "hmmt_feb25": _matharena("MathArena/hmmt_feb_2025", ["y2025"]),
+    "brumo25": _matharena("MathArena/brumo_2025", ["y2025"]),
+    "cmimc25": _matharena("MathArena/cmimc_2025", ["y2025"]),
+    # Olympiad-level, numeric answers only (about 1 in 3 of 4,428); main source of G.
+    "omni_math": EvalSpec(
+        "KbsdJames/Omni-MATH",
+        ["default"],
+        "test",
+        "problem",
+        answer=lambda r: str(r["answer"]),
+        level=lambda r: str(r["difficulty"]),
+        subject=lambda r: r["source"],
+        keep=lambda r: is_numeric_answer(r["answer"]),
+        tags=["core"],
+    ),
+    # Pilot pool: tuning, cue selection and pipeline checks only, never confirmatory.
+    "pilot_math_train_l5": EvalSpec(
+        "EleutherAI/hendrycks_math",
+        MATH_SUBJECTS,
+        "train",
+        "problem",
+        answer=lambda r: last_boxed(r["solution"]) or "",
+        level=lambda r: r["level"].replace("Level ", ""),
+        subject=lambda r: r["type"],
+        keep=lambda r: r["level"] == "Level 5",
+        tags=["pilot"],
+    ),
 }
+
+
+def stratified_subset(
+    df: pd.DataFrame, quotas: dict[str, int], seed: int = 0, by: str = "eval_set"
+) -> pd.DataFrame:
+    """Up to quotas[group] rows per group, sampled without replacement."""
+    parts = []
+    for g, k in quotas.items():
+        grp = df[df[by] == g]
+        parts.append(grp.sample(min(k, len(grp)), random_state=seed) if k < len(grp) else grp)
+    return pd.concat(parts, ignore_index=True)
 
 
 def load_eval_set(name: str, revision: str | None = None) -> pd.DataFrame:
