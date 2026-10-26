@@ -159,8 +159,10 @@ def ledger_scores(
 ) -> dict:
     """Teacher-forced per-token log-likelihoods of RL traces under one checkpoint.
 
-    items: dicts with trace_id, prompt (rendered text), completion_ids. Returns one record
-    per trace with mean log-likelihood on the opening / content / answer masks.
+    items: dicts with trace_id, prompt (rendered text), completion_ids and optionally
+    answer_start (overrides detection; use len(completion_ids) for a window with no answer
+    line). Returns one record per trace with mean log-likelihood on the opening / content /
+    answer masks.
     """
     from vllm import SamplingParams, TokensPrompt
 
@@ -177,14 +179,18 @@ def ledger_scores(
         if len(p_ids) + len(c_ids) > max_model_len:
             continue
         prompts.append(TokensPrompt(prompt_token_ids=p_ids + c_ids))
-        meta.append((it["trace_id"], len(p_ids), c_ids))
+        meta.append((it["trace_id"], len(p_ids), c_ids, it.get("answer_start")))
     sp = SamplingParams(max_tokens=1, temperature=0.0, prompt_logprobs=0)
     outs = llm.generate(prompts, sp)
     records, n_tok = [], 0
-    for (tid, plen, c_ids), out in zip(meta, outs):
+    for (tid, plen, c_ids, a_given), out in zip(meta, outs):
         plp = out.prompt_logprobs
         lps = [plp[plen + i][c_ids[i]].logprob for i in range(len(c_ids))]
-        a = answer_start_token(c_ids, lambda ids: tok.decode(list(ids)))
+        a = (
+            int(a_given)
+            if a_given is not None
+            else answer_start_token(c_ids, lambda ids: tok.decode(list(ids)))
+        )
         rec = trace_scores(lps, a, opening)
         rec.update(trace_id=tid, checkpoint=checkpoint, answer_start=a, n_completion=len(c_ids))
         records.append(rec)

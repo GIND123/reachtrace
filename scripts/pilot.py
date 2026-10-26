@@ -1,4 +1,4 @@
-"""Exploratory pilot of the v3 instruments on Olmo 3 within a ~$15 Modal budget.
+"""Exploratory pilot of the v3 instruments on Olmo 3 within a $25 Modal budget.
 
 This is a pilot, not the pre-registered study: small n, a 7,680-token cap (so every trace
 fits the 8,192-token context of stage-1/2 checkpoints), and relaxed G/B definitions.
@@ -6,8 +6,8 @@ fits the 8,192-token context of stage-1/2 checkpoints), and relaxed G/B definiti
     .venv/bin/python scripts/pilot.py select      # problems + Dolci 13-gram decon (local)
     .venv/bin/python scripts/pilot.py download    # weights into the Modal volume (CPU)
     .venv/bin/python scripts/pilot.py sample      # base and RL, n=16 each (2 x H100)
-    .venv/bin/python scripts/pilot.py escalate    # base +48 on near-zero problems
-    .venv/bin/python scripts/pilot.py ledger      # teacher-forced scores, 7 checkpoints
+    .venv/bin/python scripts/pilot.py escalate    # base +48 on near-zero problems (not run)
+    .venv/bin/python scripts/pilot.py ledger      # matched-length pairs, 5 checkpoints
     .venv/bin/python scripts/pilot.py handoff     # base continuations from RL prefixes
     .venv/bin/python scripts/pilot.py report      # tables + figures -> results/pilot/
 
@@ -26,7 +26,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 ART = ROOT / "artifacts" / "pilot"
-BUDGET_USD = 20.0
+BUDGET_USD = 22.0
 BASE = "allenai/Olmo-3-1025-7B"
 RL = "allenai/Olmo-3.1-7B-RL-Zero-Math"
 MAX_TOKENS = 7680
@@ -40,17 +40,17 @@ N_FIRST = 16
 N_ESCALATE = 48
 
 # Ledger checkpoints, in flow order: (name, repo, branch).
+# Five checkpoints to fit the budget; stage1-step707000 and step_0800 are downloaded but unused.
 LEDGER_CKPTS = [
-    ("s1_mid", BASE, "stage1-step707000"),
     ("s1_end", BASE, "stage1-step1413814"),
     ("s2_end", BASE, "stage2-step47684"),
     ("s3_end", BASE, "main"),
     ("rl_0200", RL, "step_0200"),
-    ("rl_0800", RL, "step_0800"),
     ("rl_end", RL, "main"),
 ]
-STAGES = [("pretrain_late", "s1_end"), ("midtrain", "s2_end"), ("longctx", "s3_end"),
-          ("rl_early", "rl_0200"), ("rl_mid", "rl_0800"), ("rl_late", "rl_end")]
+STAGES = [("midtrain", "s2_end"), ("longctx", "s3_end"), ("rl_early", "rl_0200"),
+          ("rl_late", "rl_end")]
+HANDOFF_MAX_TOKENS = 4096
 
 
 # ---------------------------------------------------------------------- bookkeeping
@@ -161,7 +161,9 @@ def _requests(probs: pd.DataFrame, n: int, phase: str) -> list[dict]:
     ]
 
 
-def _run_generation(jobs: list[tuple[str, str, list[dict], str]], step: str) -> None:
+def _run_generation(
+    jobs: list[tuple[str, str, list[dict], str]], step: str, max_tokens: int = MAX_TOKENS
+) -> None:
     """jobs: (repo, branch, requests, out_name); runs in parallel containers."""
     import modal
 
@@ -171,7 +173,7 @@ def _run_generation(jobs: list[tuple[str, str, list[dict], str]], step: str) -> 
     args = [(repo, _sha(repo, br), reqs, f"pilot/{name}.parquet") for repo, br, reqs, name in jobs]
     with modal.enable_output(), app.run():
         for (*_, name), res in zip(
-            jobs, generate.starmap(args, kwargs={"max_tokens": MAX_TOKENS})
+            jobs, generate.starmap(args, kwargs={"max_tokens": max_tokens})
         ):
             _log_cost(f"{step}:{name}", res)
             print(json.dumps({k: res[k] for k in ("samples", "gen_tokens", "tok_per_s")}))
@@ -225,38 +227,64 @@ def escalate() -> None:
 
 
 def groups() -> pd.DataFrame:
-    """Pilot groups. G: base 0/64 strict and lenient, RL >= 2/16. B: base rate in (0, 4/64].
-    E (easy reference): base rate >= 1/4 and RL >= 1/2."""
+    """Pilot groups at n = 16 per model (no escalation: the budget did not allow it).
+
+    G: base 0/16 under both strict and lenient grading, RL >= 2/16.
+    B: base 1-2/16, RL >= 2/16.
+    E (easy reference): base >= 4/16, RL >= 8/16.
+    G here is "unsolved in 16 base samples", a much weaker statement than the plan's 0/256.
+    """
     t = _table()
-    rate = t.c_base / t.n_base
-    rl = t.c_rl / t.n_rl
-    g = (t.c_base == 0) & (t.c_base_lenient == 0) & (t.n_base >= 64) & (rl >= 2 / 16)
-    b = (t.c_base > 0) & (rate <= 4 / 64) & (t.n_base >= 64) & (rl >= 2 / 16)
-    e = (rate >= 0.25) & (rl >= 0.5)
+    g = (t.c_base == 0) & (t.c_base_lenient == 0) & (t.c_rl >= 2)
+    b = t.c_base.between(1, 2) & (t.c_rl >= 2)
+    e = (t.c_base >= 4) & (t.c_rl >= 8)
     t["group"] = np.select([g, b, e], ["G", "B", "E"], "other")
     probs = pd.read_parquet(ART / "problems.parquet")[["problem_id", "eval_set", "level"]]
     return t.merge(probs, on="problem_id")
 
 
-def _pick_traces(r: pd.DataFrame, k: int = 3) -> pd.DataFrame:
-    """Up to k length-matched (correct, incorrect) pairs of finished RL traces per problem."""
-    fin = r[(r.finish_reason == "stop") & r.extracted.notna()]
+def _tokenizer():
+    from tokenizers import Tokenizer
+
+    return Tokenizer.from_pretrained(BASE)
+
+
+def _answer_start(tok, ids) -> int:
+    from reachtrace.ledger.core import answer_start_token
+
+    return answer_start_token(list(map(int, ids)), lambda x: tok.decode(list(x)))
+
+
+def _pick_pairs(r: pd.DataFrame, min_len: int = 256, seed: int = 0) -> pd.DataFrame:
+    """One matched-length (correct, incorrect) RL trace pair per problem.
+
+    The correct trace is a finished one with the median length; the incorrect trace is a
+    random incorrect sample, finished or truncated (73% of RL samples hit the 7,680-token
+    cap, so finished incorrect traces are rare). Both are cut to the same window
+    [0, L) with L = min(answer start of the correct trace, length of the incorrect trace),
+    so the content margin compares the same number of positions and never includes an
+    answer line.
+    """
+    tok = _tokenizer()
+    rng = np.random.default_rng(seed)
     rows = []
-    for pid, d in fin.groupby("key"):
-        cor = d[d.correct].sort_values("n_tokens")
-        inc = d[~d.correct].sort_values("n_tokens")
-        used: set[int] = set()
-        for _, c in cor.iterrows():
-            if len(rows) and sum(x["key"] == pid for x in rows) >= 2 * k:
-                break
-            cand = inc[~inc.index.isin(used)]
-            if cand.empty:
-                break
-            j = (cand.n_tokens / c.n_tokens).sub(1).abs().idxmin()
-            if not 2 / 3 <= inc.loc[j, "n_tokens"] / c.n_tokens <= 1.5:
-                continue
-            used.add(j)
-            rows += [c.to_dict(), inc.loc[j].to_dict()]
+    for pid, d in r.groupby("key"):
+        cor = d[d.correct & (d.finish_reason == "stop")].sort_values("n_tokens")
+        inc = d[~d.correct]
+        if cor.empty or inc.empty:
+            continue
+        c = cor.iloc[len(cor) // 2]
+        i = inc.iloc[int(rng.integers(len(inc)))]
+        a_c = _answer_start(tok, c.token_ids)
+        a_i = _answer_start(tok, i.token_ids)
+        win = int(min(a_c, a_i, len(i.token_ids)))
+        if win < min_len:
+            continue
+        for row, lab in ((c, True), (i, False)):
+            rows.append({"key": pid, "trace_id": f"{pid}#{row.sample_idx}", "correct": lab,
+                         "window": win, "full_len": int(row.n_tokens),
+                         "finished": row.finish_reason == "stop",
+                         "token_ids": list(map(int, row.token_ids[:win]))})
     return pd.DataFrame(rows)
 
 
@@ -267,18 +295,15 @@ def ledger() -> None:
     from reachtrace.remote.app import app, ledger_scores
 
     _guard()
-    grp = groups()
-    keep = grp[grp.group.isin(["G", "B", "E"])].problem_id
-    r = _load_gens("rl")
-    traces = _pick_traces(r[r.key.isin(keep)])
-    traces["trace_id"] = traces.key + "#" + traces.sample_idx.astype(str)
+    traces = _pick_pairs(_load_gens("rl"))
     traces.to_parquet(ART / "ledger_traces.parquet")
-    print(traces.groupby("key").size().describe().to_string())
+    n_prob = traces.key.nunique()
+    print(f"{n_prob} problems, window tokens: {traces.groupby('key').window.first().describe()}")
     probs = pd.read_parquet(ART / "problems.parquet").set_index("problem_id")
     t = get_template("rlzero31_math")
     items = [
         {"trace_id": tid, "prompt": t.render(probs.loc[k, "question"]),
-         "completion_ids": list(map(int, ids))}
+         "completion_ids": ids, "answer_start": len(ids)}
         for tid, k, ids in zip(traces.trace_id, traces.key, traces.token_ids)
     ]
     args = [(repo, _sha(repo, br), name, items) for name, repo, br in LEDGER_CKPTS]
@@ -297,25 +322,26 @@ def handoff() -> None:
 
     grp = groups()
     keep = set(grp[grp.group.isin(["G", "B"])].problem_id)
-    tr = pd.read_parquet(ART / "ledger_traces.parquet")
-    sc = pd.read_parquet(ART / "ledger_scores.parquet")
-    a_start = sc[sc.checkpoint == "rl_end"].set_index("trace_id").answer_start
-    cor = tr[tr.correct & tr.key.isin(keep)].groupby("key").head(1)
+    r = _load_gens("rl")
+    cor = r[r.correct & (r.finish_reason == "stop") & r.key.isin(keep)]
+    cor = cor.sort_values("n_tokens").groupby("key").nth(0).reset_index(drop=True)
+    tok = _tokenizer()
     probs = pd.read_parquet(ART / "problems.parquet").set_index("problem_id")
     t = get_template("rlzero31_math")
     reqs, meta = [], []
     for _, row in cor.iterrows():
-        a = int(a_start[row.trace_id])
-        for f, L in prefix_lengths(a, (0.1, 0.25, 0.5, 0.75)).items():
+        a = _answer_start(tok, row.token_ids)
+        for f, L in prefix_lengths(a, (0.25, 0.5, 0.75)).items():
             key = f"{row.key}|{f}"
             reqs.append({"key": key, "prompt": t.render(probs.loc[row.key, "question"]),
                          "n": 8, "seed": sample_seed(SEED, key, PHASE_IDS["handoff"]),
                          "prefix_ids": list(map(int, row.token_ids[:L]))})
             meta.append({"key": key, "problem_id": row.key, "frac": f, "prefix_len": L,
-                         "trace_id": row.trace_id})
+                         "content_len": a})
     pd.DataFrame(meta).to_parquet(ART / "handoff_meta.parquet")
-    print(f"{len(reqs)} prefix requests x 8 samples")
-    _run_generation([(BASE, "main", reqs, "handoff_base")], "handoff")
+    print(f"{cor.key.nunique()} problems, {len(reqs)} prefix requests x 8 samples")
+    _run_generation([(BASE, "main", reqs, "handoff_base")], "handoff",
+                    max_tokens=HANDOFF_MAX_TOKENS)
 
 
 def _boot_ci(x: np.ndarray, n: int = 2000, seed: int = 0) -> tuple[float, float, float]:
@@ -404,13 +430,13 @@ def report() -> None:
                "tokens (opening 16 tokens and answer line excluded); mean [95% bootstrap CI] "
                "over problems.", "", led.to_markdown(index=False), ""]
         wide = m.pivot(index="problem_id", columns="checkpoint", values="M")
-        inc = stage_increments(wide.dropna(), STAGES, start="s1_mid")
+        inc = stage_increments(wide.dropna(), STAGES, start="s1_end")
         inc["group"] = inc.index.map(gmap)
         stg = [s for s, _ in STAGES]
         summ = inc.groupby("group")[stg + ["total"]].mean()
         summ.to_csv(out / "ledger_stage_increments.csv")
         md += ["Mean stage increments of M (they sum exactly to `total`, the change from "
-               "mid-pretraining to the final RL model):", "",
+               "the end of pretraining to the final RL model):", "",
                summ.to_markdown(floatfmt=".3f"), ""]
         op = sc.groupby(["checkpoint", "correct"]).opening.mean().unstack()
         md += ["Opening-token log-likelihood (first 16 tokens, all traces):", "",

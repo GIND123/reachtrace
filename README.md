@@ -8,11 +8,14 @@ When RL-Zero training lets `allenai/Olmo-3.1-7B-RL-Zero-Math` solve problems tha
 - **(H2′) acquisition**: the RL-stage signal itself (Dolci prompts and on-policy rollouts); or
 - **(H3) composition**: new joint structure over regions that already supported the parts?
 
-The project uses three kinds of evidence, ordered from cheapest to most fragile. Each one can be published on its own.
+The current design is **plan v3** ([docs/05_plan_v3.md](docs/05_plan_v3.md)). Stage questions are answered by exact behavioural measures; gradient attribution is limited to comparisons *within* a stage and runs only after a synthetic gate passes.
 
-1. **Behavioural instrument.** Decontaminated R/U/L/N reachability partitions with *certified* reachability bounds, plus cue-forcing and fork-token controls.
-2. **Checkpoint provenance (no attribution).** Where a problem becomes reachable along the released flow: end of pretraining (`stage1-step1413814`), end of midtraining (`stage2-step47684`), three midtraining data-mix ablation arms, and 28 RL-Zero step checkpoints (`step_0100` … `step_2800`).
-3. **Gradient attribution.** Stage-level and bin-level attribution with Bergson, run only after a synthetic planted-fragment gate shows it recovers known causes under GRPO with the BehaviorTrace confound controls.
+1. **Likelihood ledger and discrimination margin.** Teacher-forced log-likelihood of correct vs incorrect RL traces at every checkpoint along the flow (pretraining, midtraining, long-context, RL steps). The correct-minus-incorrect margin cancels format, and its stage increments add up exactly.
+2. **Handoff map.** How much of a correct RL solution the base model needs before it can finish it; behaviourally identified critical segments.
+3. **Continuous reachability.** Base solve rates on decontaminated, partly post-cutoff problems, with lenient grading and matched budgets (replaces certified U/R labels).
+4. **Within-stage attribution (gated).** Contrastive, label-masked Bergson queries; RL items scored with the advantage applied after normalization, against placebo rollouts.
+
+First results from a small exploratory pilot are in [results/pilot/](results/pilot/README.md).
 
 ## Documents
 
@@ -22,7 +25,9 @@ The project uses three kinds of evidence, ordered from cheapest to most fragile.
 | [docs/02_literature_survey.md](docs/02_literature_survey.md) | Verified literature survey (every arXiv ID resolved on 2026-10-22) |
 | [docs/03_implementation_plan.md](docs/03_implementation_plan.md) | Work packages, specifications, gates and decision rules, with no calendar |
 | [docs/04_verification_log.md](docs/04_verification_log.md) | Facts checked against the Hub, PyPI, the Bergson source and the Olmo 3 report, with how each was checked |
-| [prereg/analysis_plan.md](prereg/analysis_plan.md) | Pre-registration template, to be frozen and hashed before any 7B attribution |
+| [docs/05_plan_v3.md](docs/05_plan_v3.md) | **Current plan (v3)**: ledger, margin, handoff, gated within-stage attribution |
+| [prereg/analysis_plan.md](prereg/analysis_plan.md) | Pre-registration draft for v3, frozen after Phase A |
+| [results/pilot/](results/pilot/README.md) | Exploratory pilot on Olmo 3 (small n, 7,680-token cap) |
 
 ## Layout
 
@@ -34,9 +39,14 @@ src/reachtrace/
   data/               eval sets (unified schema), Dolci RL items (Dr. GRPO advantages), corpus sampling
   decon/              n-gram scan for RL references; wrapper for allenai/decon
   sample/             vLLM runner, adaptive sequential sampling, Answer:-line grading
-  reach/              pass@k, Clopper-Pearson certification, partitions, checkpoint provenance
-  attrib/             Bergson commands, fork-token targets, bin/stage aggregation, controls, co-influence
-  synthetic/          planted-fragment corpus, composition tasks, CPT + GRPO, leave-out / LDS ground truth
+  reach/              pass@k, continuous Jeffreys rates and G/B groups, partitions, checkpoint provenance
+  ledger/             teacher-forced likelihood ledger, masks, discrimination margin, stage increments
+  handoff/            prefix handoff map, critical segments, composition signature
+  remote/             Modal jobs: weight download, vLLM sampling from token IDs, ledger scoring
+  attrib/             Bergson commands, RL-item scoring (advantage after normalization), contrastive
+                      scores, label-masked rows, BM25 baseline, aggregation, controls
+  synthetic/          planted-fragment corpus (v2: aliases, format and worked-trace families,
+                      dose-design LDS), composition tasks, CPT + GRPO, ground truth
   analysis/           bootstrap, stratified permutation, BH, TOST, MDE, CEM matching, proximity
 configs/              model pair, attribution tier A, synthetic gate
 tests/                runs on CPU in seconds
@@ -64,9 +74,20 @@ reachtrace synth-corpus
 reachtrace bergson-cmds
 ```
 
+## Running on Modal
+
+GPU stages run on [Modal](https://modal.com) (`pip install -e ".[remote]"`, then `modal token new` once). Jobs read the Hugging Face token from a Modal secret named `hf-token`.
+
+```bash
+.venv/bin/python scripts/smoke.py           # tiny-model end-to-end check on an L4 (cents)
+.venv/bin/python scripts/pilot.py select    # then: download, sample, escalate, ledger, handoff, report
+```
+
+`scripts/pilot.py` logs every job's cost to `artifacts/pilot/costs.jsonl` and refuses to start a GPU step once the running total passes its budget cap.
+
 ## Status
 
-The repo is scaffolding with tested CPU-side logic: statistics, partitions, grading, prompt fidelity, aggregation, co-influence, the synthetic task generator and the command builders. GPU paths (vLLM sampling, Bergson builds, CPT/GRPO) are written against verified APIs but have not run yet. Phase 0 in the implementation plan is the first GPU run.
+CPU-side logic is tested (statistics, grading, ledger, handoff, RL-item scoring, synthetic gate v2). The Modal sampling and ledger jobs have run on Olmo 3 in the exploratory pilot. Bergson attribution and synthetic-gate training have not run yet.
 
 ## Author
 
