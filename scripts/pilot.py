@@ -40,16 +40,27 @@ N_FIRST = 16
 N_ESCALATE = 48
 
 # Ledger checkpoints, in flow order: (name, repo, branch).
-# Five checkpoints to fit the budget; stage1-step707000 and step_0800 are downloaded but unused.
+# Ledger checkpoints in flow order. Scoring costs ~$0.1 per checkpoint, so all are used.
 LEDGER_CKPTS = [
+    ("s1_mid", BASE, "stage1-step707000"),
     ("s1_end", BASE, "stage1-step1413814"),
     ("s2_end", BASE, "stage2-step47684"),
     ("s3_end", BASE, "main"),
     ("rl_0200", RL, "step_0200"),
+    ("rl_0800", RL, "step_0800"),
     ("rl_end", RL, "main"),
 ]
-STAGES = [("midtrain", "s2_end"), ("longctx", "s3_end"), ("rl_early", "rl_0200"),
-          ("rl_late", "rl_end")]
+STAGES = [("pretrain_late", "s1_end"), ("midtrain", "s2_end"), ("longctx", "s3_end"),
+          ("rl_early", "rl_0200"), ("rl_mid", "rl_0800"), ("rl_late", "rl_end")]
+# Midtraining data-mix ablations (Olmo 3 report Table 7): 100B midtraining tokens from a
+# stage-1 checkpoint at ~2T tokens; stage1-step476838 is the nearest branch to 2T (estimate).
+ARM_CKPTS = [
+    ("s1_2T", BASE, "stage1-step476838"),
+    ("arm_round5", BASE, "stage2-step47684-mix-round5-from-2T-ckpt"),
+    ("arm_gen_mc_only", BASE, "stage2-step47684-mix-gen-mc-only-from-2T-ckpt"),
+    ("arm_math_code_reasoning_web", BASE,
+     "stage2-step47684-mix-math-code-reasoning-web-from-2T-ckpt"),
+]
 HANDOFF_MAX_TOKENS = 4096
 
 
@@ -142,7 +153,7 @@ def download() -> None:
     from reachtrace.remote.app import app
     from reachtrace.remote.app import download as dl
 
-    revs = sorted({(r, _sha(r, b)) for _, r, b in LEDGER_CKPTS})
+    revs = sorted({(r, _sha(r, b)) for _, r, b in LEDGER_CKPTS + ARM_CKPTS})
     with modal.enable_output(), app.run():
         for res in dl.starmap(revs):
             print(res["repo"], res["revision"], f"{res['gb']:.1f} GB", f"{res['seconds']:.0f}s")
@@ -255,11 +266,13 @@ def _answer_start(tok, ids) -> int:
     return answer_start_token(list(map(int, ids)), lambda x: tok.decode(list(x)))
 
 
-def _pick_pairs(r: pd.DataFrame, min_len: int = 256, seed: int = 0) -> pd.DataFrame:
-    """One matched-length (correct, incorrect) RL trace pair per problem.
+def _pick_pairs(
+    r: pd.DataFrame, min_len: int = 256, seed: int = 0, k: int = 3
+) -> pd.DataFrame:
+    """Up to k matched-length (correct, incorrect) RL trace pairs per problem.
 
-    The correct trace is a finished one with the median length; the incorrect trace is a
-    random incorrect sample, finished or truncated (73% of RL samples hit the 7,680-token
+    Correct traces are distinct finished ones; each is paired with a distinct random
+    incorrect sample, finished or truncated (73% of RL samples hit the 7,680-token
     cap, so finished incorrect traces are rare). Both are cut to the same window
     [0, L) with L = min(answer start of the correct trace, length of the incorrect trace),
     so the content margin compares the same number of positions and never includes an
@@ -269,22 +282,24 @@ def _pick_pairs(r: pd.DataFrame, min_len: int = 256, seed: int = 0) -> pd.DataFr
     rng = np.random.default_rng(seed)
     rows = []
     for pid, d in r.groupby("key"):
-        cor = d[d.correct & (d.finish_reason == "stop")].sort_values("n_tokens")
+        cor = d[d.correct & (d.finish_reason == "stop")]
         inc = d[~d.correct]
-        if cor.empty or inc.empty:
+        n_pairs = min(k, len(cor), len(inc))
+        if n_pairs == 0:
             continue
-        c = cor.iloc[len(cor) // 2]
-        i = inc.iloc[int(rng.integers(len(inc)))]
-        a_c = _answer_start(tok, c.token_ids)
-        a_i = _answer_start(tok, i.token_ids)
-        win = int(min(a_c, a_i, len(i.token_ids)))
-        if win < min_len:
-            continue
-        for row, lab in ((c, True), (i, False)):
-            rows.append({"key": pid, "trace_id": f"{pid}#{row.sample_idx}", "correct": lab,
-                         "window": win, "full_len": int(row.n_tokens),
-                         "finished": row.finish_reason == "stop",
-                         "token_ids": list(map(int, row.token_ids[:win]))})
+        cor = cor.iloc[rng.permutation(len(cor))[:n_pairs]]
+        inc = inc.iloc[rng.permutation(len(inc))[:n_pairs]]
+        for j, ((_, c), (_, i)) in enumerate(zip(cor.iterrows(), inc.iterrows())):
+            a_c = _answer_start(tok, c.token_ids)
+            a_i = _answer_start(tok, i.token_ids)
+            win = int(min(a_c, a_i, len(i.token_ids)))
+            if win < min_len:
+                continue
+            for row, lab in ((c, True), (i, False)):
+                rows.append({"key": pid, "pair": j, "trace_id": f"{pid}#{row.sample_idx}",
+                             "correct": lab, "window": win, "full_len": int(row.n_tokens),
+                             "finished": row.finish_reason == "stop",
+                             "token_ids": list(map(int, row.token_ids[:win]))})
     return pd.DataFrame(rows)
 
 
@@ -306,10 +321,18 @@ def ledger() -> None:
          "completion_ids": ids, "answer_start": len(ids)}
         for tid, k, ids in zip(traces.trace_id, traces.key, traces.token_ids)
     ]
-    args = [(repo, _sha(repo, br), name, items) for name, repo, br in LEDGER_CKPTS]
+    ckpts = LEDGER_CKPTS + ARM_CKPTS
+    args = [(repo, _sha(repo, br), name, items) for name, repo, br in ckpts]
     recs = []
     with modal.enable_output(), app.run():
-        for (name, _, _), res in zip(LEDGER_CKPTS, ledger_scores.starmap(args)):
+        results = ledger_scores.starmap(
+            args, kwargs={"return_tokens": True}, return_exceptions=True
+        )
+        for (name, _, _), res in zip(ckpts, results):
+            if isinstance(res, BaseException):
+                print(f"[ledger:{name}] FAILED: {str(res)[:300]}")
+                _log_cost(f"ledger:{name}:failed_estimate", {"usd": 0.05})
+                continue
             _log_cost(f"ledger:{name}", res)
             recs += res["records"]
     pd.DataFrame(recs).to_parquet(ART / "ledger_scores.parquet")
@@ -410,37 +433,114 @@ def report() -> None:
     # ---- RQ2: ledger
     if (ART / "ledger_scores.parquet").exists():
         sc = pd.read_parquet(ART / "ledger_scores.parquet")
-        tr = pd.read_parquet(ART / "ledger_traces.parquet")[["trace_id", "key", "correct"]]
-        sc = sc.merge(tr, on="trace_id").rename(columns={"key": "problem_id"})
+        tr = pd.read_parquet(ART / "ledger_traces.parquet")
+        sc = sc.merge(tr[["trace_id", "key", "correct", "finished", "pair"]], on="trace_id")
+        sc = sc.rename(columns={"key": "problem_id"})
         order = [n for n, _, _ in LEDGER_CKPTS]
+        arms = [n for n, _, _ in ARM_CKPTS]
         m = margins(sc, "content")
         m["group"] = m.problem_id.map(gmap)
+        n_prob, n_pair = sc.problem_id.nunique(), len(tr) // 2
+        md += ["## 2. Likelihood ledger and discrimination margin", "",
+               f"{n_prob} problems, {n_pair} matched-length (correct, incorrect) RL trace pairs. "
+               "Each pair is cut to the same window (no answer line). M = mean per-token "
+               "log-likelihood of correct minus incorrect traces on content tokens (the first 16 "
+               "tokens excluded); L = mean per-token log-likelihood. Mean [95% bootstrap CI] "
+               "over problems.", ""]
         lrows = []
-        for g_ in ("G", "B", "E"):
-            for ck in order:
-                x = m[(m.group == g_) & (m.checkpoint == ck)]
+        for g_ in ("all", "G", "B", "E"):
+            for ck in order + arms:
+                x = m[m.checkpoint == ck]
+                if g_ != "all":
+                    x = x[x.group == g_]
                 lrows.append({"group": g_, "checkpoint": ck, "problems": len(x),
-                              "M (content margin)": _fmt(_boot_ci(x.M)),
-                              "L correct": _fmt(_boot_ci(x.L_correct), 2),
-                              "L incorrect": _fmt(_boot_ci(x.L_incorrect), 2)})
+                              "M content": _fmt(_boot_ci(x.M)),
+                              "share M>0": f"{(x.M > 0).mean():.2f}",
+                              "L correct": _fmt(_boot_ci(x.L_correct), 2)})
         led = pd.DataFrame(lrows)
         led.to_csv(out / "ledger_margins.csv", index=False)
-        md += ["## 2. Discrimination margin across the flow", "",
-               "M = mean per-token log-likelihood of correct minus incorrect RL traces on content "
-               "tokens (opening 16 tokens and answer line excluded); mean [95% bootstrap CI] "
-               "over problems.", "", led.to_markdown(index=False), ""]
+        md += [led[led.checkpoint.isin(order)].to_markdown(index=False), ""]
+
+        # Robustness: only pairs whose incorrect trace finished (no truncation).
+        fin_pairs = tr[~tr.correct & tr.finished][["key", "pair"]]
+        sf = sc.merge(fin_pairs.rename(columns={"key": "problem_id"}), on=["problem_id", "pair"])
+        mf = margins(sf, "content")
+        rob = mf.groupby("checkpoint").M.apply(lambda v: _fmt(_boot_ci(v))).reindex(order)
+        md += [f"Robustness, pairs whose incorrect trace finished ({sf.problem_id.nunique()} "
+               "problems): M content by checkpoint", "", rob.to_frame("M").to_markdown(), ""]
+
         wide = m.pivot(index="problem_id", columns="checkpoint", values="M")
-        inc = stage_increments(wide.dropna(), STAGES, start="s1_end")
+        inc = stage_increments(wide[order].dropna(), STAGES, start="s1_mid")
         inc["group"] = inc.index.map(gmap)
         stg = [s for s, _ in STAGES]
-        summ = inc.groupby("group")[stg + ["total"]].mean()
+        summ = pd.concat([inc[stg + ["total"]].mean().rename("all").to_frame().T,
+                          inc.groupby("group")[stg + ["total"]].mean()])
         summ.to_csv(out / "ledger_stage_increments.csv")
-        md += ["Mean stage increments of M (they sum exactly to `total`, the change from "
-               "the end of pretraining to the final RL model):", "",
-               summ.to_markdown(floatfmt=".3f"), ""]
-        op = sc.groupby(["checkpoint", "correct"]).opening.mean().unstack()
-        md += ["Opening-token log-likelihood (first 16 tokens, all traces):", "",
-               op.reindex(order).to_markdown(floatfmt=".2f"), ""]
+        md += ["Stage increments of M (exact telescoping; they sum to `total`, the change from "
+               "mid-pretraining to the final RL model):", "", summ.to_markdown(floatfmt=".3f"), ""]
+
+        lw = sc[sc.correct].groupby("checkpoint")[["opening", "content"]].mean()
+        mo = margins(sc, "opening").groupby("checkpoint").M.mean()
+        ledg = lw.assign(opening_margin=mo).reindex(order + arms)
+        ledg.to_csv(out / "ledger_opening_content.csv")
+        md += ["Opening (first 16 tokens) vs content log-likelihood of correct traces, and the "
+               "opening margin:", "", ledg.to_markdown(floatfmt=".3f"), ""]
+
+        # Midtraining arms vs their ~2T start.
+        aw = m.pivot(index="problem_id", columns="checkpoint", values="M")
+        al = m.pivot(index="problem_id", columns="checkpoint", values="L_correct")
+        arow = []
+        for a_ in arms[1:]:
+            arow.append({"arm": a_, "dM vs 2T": _fmt(_boot_ci(aw[a_] - aw["s1_2T"])),
+                         "dL correct vs 2T": _fmt(_boot_ci(al[a_] - al["s1_2T"]), 2)})
+        diff = aw["arm_math_code_reasoning_web"] - aw["arm_gen_mc_only"]
+        arow.append({"arm": "math_code_reasoning_web - gen_mc_only",
+                     "dM vs 2T": _fmt(_boot_ci(diff)),
+                     "dL correct vs 2T": _fmt(_boot_ci(al["arm_math_code_reasoning_web"]
+                                                       - al["arm_gen_mc_only"]), 2)})
+        armt = pd.DataFrame(arow)
+        armt.to_csv(out / "ledger_midtrain_arms.csv", index=False)
+        md += ["Midtraining data-mix arms (100B tokens from the ~2T stage-1 checkpoint), change "
+               "relative to that checkpoint:", "", armt.to_markdown(index=False), ""]
+
+        # Where along the trace each stage changes the correct traces' log-likelihood.
+        if "lp_f16" in sc:
+            cor = sc[sc.correct][["trace_id", "checkpoint", "lp_f16"]]
+            arr = {(t_, c_): np.frombuffer(b_, dtype=np.float16).astype(float)
+                   for t_, c_, b_ in zip(cor.trace_id, cor.checkpoint, cor.lp_f16)}
+            pairs_ = [("s1_end", "s2_end", "midtraining"), ("s2_end", "s3_end", "long-context"),
+                      ("s3_end", "rl_end", "RL")]
+            edges = [0, 4, 16, 64, 256, 1024, 4096, 8192]
+            fig, ax = plt.subplots(figsize=(7, 4))
+            prof = {}
+            for a_, b2, lab in pairs_:
+                sums, cnts = np.zeros(len(edges) - 1), np.zeros(len(edges) - 1)
+                for t_ in cor.trace_id.unique():
+                    if (t_, a_) in arr and (t_, b2) in arr:
+                        d_ = arr[(t_, b2)] - arr[(t_, a_)]
+                        for j in range(len(edges) - 1):
+                            seg = d_[edges[j]: edges[j + 1]]
+                            sums[j] += seg.sum()
+                            cnts[j] += len(seg)
+                prof[lab] = sums / np.maximum(cnts, 1)
+                ax.plot(range(len(edges) - 1), prof[lab], marker="o", label=lab)
+            ax.set_xticks(range(len(edges) - 1),
+                          [f"{edges[j]}-{edges[j + 1]}" for j in range(len(edges) - 1)],
+                          rotation=30)
+            ax.axhline(0, color="grey", lw=0.8)
+            ax.set_xlabel("token position in the correct RL trace")
+            ax.set_ylabel("change in log-likelihood (nats/token)")
+            ax.set_title("Where each stage raises the likelihood of correct RL traces")
+            ax.legend()
+            fig.tight_layout()
+            fig.savefig(out / "ledger_position_profile.png", dpi=150)
+            pt = pd.DataFrame(prof, index=[f"{edges[j]}-{edges[j + 1]}"
+                                           for j in range(len(edges) - 1)])
+            pt.to_csv(out / "ledger_position_profile.csv")
+            md += ["Change in per-token log-likelihood of correct traces by token position:", "",
+                   pt.to_markdown(floatfmt=".3f"), "", "![position](ledger_position_profile.png)",
+                   ""]
+
         fig, ax = plt.subplots(figsize=(7, 4))
         for g_, c in zip(("G", "B", "E"), ("C3", "C1", "C0")):
             ys = [_boot_ci(m[(m.group == g_) & (m.checkpoint == ck)].M) for ck in order]

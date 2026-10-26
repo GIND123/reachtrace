@@ -78,10 +78,41 @@ def download(repo: str, revision: str) -> dict:
             "seconds": time.time() - t0}
 
 
+def _patched_path(path: str) -> str:
+    """Make pre-release `olmo2-retrofit` checkpoints loadable as Olmo 3.
+
+    The midtraining-arm branches (`stage2-step47684-mix-*-from-2T-ckpt`) declare
+    `Olmo2RetrofitForCausalLM`, which transformers and vLLM do not know. The shapes and
+    layer layout match Olmo 3, so we link the shard set named in the index (the branch also
+    carries a stale second shard set) and write an Olmo 3 config. The pre-release config says
+    sliding_window 4097; Ai2's converted Olmo 3 checkpoints use 4096, so we use 4096.
+    """
+    import json
+    import os
+
+    with open(f"{path}/config.json") as f:
+        cfg = json.load(f)
+    if cfg.get("model_type") != "olmo2-retrofit":
+        return path
+    out = f"/tmp/patched/{os.path.basename(path)}"
+    os.makedirs(out, exist_ok=True)
+    with open(f"{path}/model.safetensors.index.json") as f:
+        keep = set(json.load(f)["weight_map"].values())
+    for name in os.listdir(path):
+        if name == "config.json" or (name.endswith(".safetensors") and name not in keep):
+            continue
+        if not os.path.exists(f"{out}/{name}"):
+            os.symlink(f"{path}/{name}", f"{out}/{name}")
+    cfg.update(model_type="olmo3", architectures=["Olmo3ForCausalLM"], sliding_window=4096)
+    with open(f"{out}/config.json", "w") as f:
+        json.dump(cfg, f)
+    return out
+
+
 def _llm(repo: str, revision: str, max_model_len: int, eager: bool):
     from vllm import LLM
 
-    path = _local_path(repo, revision)
+    path = _patched_path(_local_path(repo, revision))
     return LLM(
         model=path,
         tokenizer=path,
@@ -155,7 +186,7 @@ def generate(
 @app.function(gpu=GPU, volumes={VOL_PATH: vol}, secrets=secrets, timeout=2 * 3600)
 def ledger_scores(
     repo: str, revision: str, checkpoint: str, items: list[dict], opening: int = 16,
-    max_model_len: int = 8192,
+    max_model_len: int = 8192, return_tokens: bool = False,
 ) -> dict:
     """Teacher-forced per-token log-likelihoods of RL traces under one checkpoint.
 
@@ -193,6 +224,10 @@ def ledger_scores(
         )
         rec = trace_scores(lps, a, opening)
         rec.update(trace_id=tid, checkpoint=checkpoint, answer_start=a, n_completion=len(c_ids))
+        if return_tokens:
+            import numpy as np
+
+            rec["lp_f16"] = np.asarray(lps, dtype=np.float16).tobytes()
         records.append(rec)
         n_tok += plen + len(c_ids)
     dt = time.time() - t0
