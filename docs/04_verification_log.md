@@ -63,3 +63,23 @@ Facts the code and plan depend on, how each was checked, and the result. All che
 ## Literature
 
 All 62 arXiv IDs in [02_literature_survey.md](02_literature_survey.md) were resolved through `export.arxiv.org/api/query?id_list=…`, which returns title, authors and date. Recent related work was found with alphaXiv search (recency-prioritised) on three queries: RLVR × attribution, RL reasoning boundary × composition, and Olmo × provenance.
+
+## Added 2026-10-26 (plan v3 build)
+
+| Claim | Check | Result |
+|---|---|---|
+| RL-Zero 3.1 `main` vs `step_2800` | `/api/models/.../tree/{main,step_2800}` LFS oids | **Identical weights**; sample `main` only |
+| Olmo 3 7B attention | `config.json` | `num_key_value_heads: 32` (no GQA); sliding window 4,096 on 3 of 4 layers |
+| Context of stage checkpoints | `config.json` at `stage1-step707000`, `stage1-step1413814`, `stage2-step47684` | `max_position_embeddings: 8192`, no RoPE scaling; `stage3-step11921` has YaRN to 65,536. Ledger traces must fit 8,192 tokens |
+| Midtraining arms' 2T start | stage-1 branch list; 5.93T / 1,413,814 steps ≈ 4.19M tokens/step | 2T ≈ `stage1-step476838` (estimate; confirm on the model card) |
+| Bergson unit normalization vs advantages | `bergson/process_grads.py:159` (commit d8478a1) | Each item gradient is divided by its norm *after* the advantage is applied, so only sign(A) survives. Fixed by post-hoc weighting (`attrib/rl_scoring.py`) |
+| Bergson pre-tokenized input | `bergson/utils/worker_utils.py:426` | Tokenization is skipped when `input_ids` is present; label masks still to be confirmed |
+| Bergson loss reduction | `config.py` | Index default `loss_reduction="sum"` (no length normalization, consistent with Dr. GRPO) |
+| Matlin et al. compute | paper App. L | 20,000 GPU-h for the 5.68M-document index (10.5B tokens): ~150 tokens/s/GPU; d=16 (256 per module); working set excludes FineMath, arXiv, Stack-Edu, Wikipedia |
+| Post-cutoff eval sets | Hub API / datasets-server | `MathArena/{aime_2026, hmmt_feb_2026, hmmt_feb_2025, brumo_2025, cmimc_2025}` (CC-BY-NC-SA-4.0; columns `problem_idx, problem, answer[, problem_type]`); `KbsdJames/Omni-MATH` (Apache-2.0, 4,428 rows, `difficulty`, `source`) |
+| Modal pricing | modal.com/pricing | H100 $3.95/h, A100-80GB $2.50/h, L4 $0.80/h; volume storage free up to 1 TiB |
+| vLLM on Modal | smoke test | vLLM 0.32.0 pip wheel has no FlashInfer cubins and the image has no nvcc; set `VLLM_USE_FLASHINFER_SAMPLER=0` |
+| vLLM throughput, Olmo 3 7B, 1×H100 | pilot jobs (124 problems × 16 samples, 7,680-token cap) | base 1,530 and RL 1,338 generated tokens/s (wall-clock incl. ~2 min load). RL mean 6,975 tokens/sample, 73% at the cap |
+| "AIME 2026 Problem 1" (MathArena) vs Dolci | 13-gram overlap | **Verbatim in Dolci-RL-Zero-Math-7B row 574 with the same answer (277)**; Dolci was uploaded 2025-11-17, before the contest. A post-cutoff date does not guarantee cleanliness |
+| Omni-MATH vs Dolci | 13-gram overlap > 0.4 of the question | 13 of 60 sampled difficulty-4–6.5 problems (22%) are Dolci near-duplicates |
+| 13-gram "any shared n-gram" decon rule | pilot selection | Flags boilerplate ("where m and n are relatively prime positive integers. Find m+n"); use an overlap fraction (0.4 in the pilot) plus manual review |
