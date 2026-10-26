@@ -67,7 +67,7 @@ def _matharena(hf_id: str, tags: list[str]) -> EvalSpec:
         "problem",
         answer=lambda r: str(r["answer"]),
         native_id=lambda r, i: str(r["problem_idx"]),
-        subject=lambda r: r.get("problem_type"),
+        subject=lambda r: None if r.get("problem_type") is None else str(r["problem_type"]),
         tags=tags,
     )
 
