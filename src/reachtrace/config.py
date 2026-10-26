@@ -76,6 +76,34 @@ class AttributionConfig(BaseModel):
     aggregate_levels: list[str] = Field(default_factory=lambda: ["weborg_bin", "stage"])
 
 
+class SourceQuota(BaseModel):
+    source: str
+    docs: int
+    hf_id: str = ""
+    note: str = ""
+
+
+class StageCorpus(BaseModel):
+    """One training stage's attribution sample, scored at that stage's own end checkpoint."""
+
+    stage: Literal["pretrain", "midtrain", "longctx", "rl", "rl_placebo"]
+    model: str
+    revisions: list[str]
+    max_tokens: int = 1024
+    sources: list[SourceQuota]
+
+
+class WithinStageConfig(BaseModel):
+    """Plan v3 RQ4: comparisons only within a stage (G vs B; Dolci vs placebo)."""
+
+    projection_dim: int = 16
+    unit_norm: bool = True
+    stages: list[StageCorpus]
+
+    def total_docs(self, stage: str) -> int:
+        return sum(q.docs for s in self.stages if s.stage == stage for q in s.sources)
+
+
 class SyntheticConfig(BaseModel):
     seed: int = 0
     docs_per_family: int = 2000

@@ -318,7 +318,170 @@ def handoff() -> None:
     _run_generation([(BASE, "main", reqs, "handoff_base")], "handoff")
 
 
+def _boot_ci(x: np.ndarray, n: int = 2000, seed: int = 0) -> tuple[float, float, float]:
+    x = np.asarray(x, float)
+    x = x[np.isfinite(x)]
+    if len(x) == 0:
+        return (np.nan, np.nan, np.nan)
+    rng = np.random.default_rng(seed)
+    b = rng.choice(x, (n, len(x))).mean(1)
+    return float(x.mean()), float(np.quantile(b, 0.025)), float(np.quantile(b, 0.975))
+
+
+def _fmt(m: tuple[float, float, float], d: int = 3) -> str:
+    return f"{m[0]:.{d}f} [{m[1]:.{d}f}, {m[2]:.{d}f}]"
+
+
+def report() -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from reachtrace.handoff.core import composition_signature, success_curve
+    from reachtrace.handoff.core import handoff as h_of
+    from reachtrace.ledger.core import margins, stage_increments
+    from reachtrace.reach.passk import pass_at_k
+
+    out = ROOT / "results" / "pilot"
+    out.mkdir(parents=True, exist_ok=True)
+    md = ["# Pilot results (exploratory)", ""]
+    costs = [json.loads(x) for x in (ART / "costs.jsonl").read_text().splitlines() if x]
+    md += [f"Modal spend for this pilot: **${sum(c.get('usd', 0) for c in costs):.2f}** "
+           "(GPU time from job wall-clock at $3.95/H100-hour; CPU downloads included).", ""]
+
+    # ---- RQ1: accuracy, format, groups
+    b, r = _load_gens("base"), _load_gens("rl")
+    grp = groups()
+    gmap = grp.set_index("problem_id").group
+    rows = []
+    for es, d in grp.groupby("eval_set"):
+        ids = set(d.problem_id)
+        bb, rr = b[b.key.isin(ids) & (b.sample_idx < N_FIRST)], r[r.key.isin(ids)]
+
+        def pk(df, k):
+            c = df.groupby("key").correct.agg(["size", "sum"])
+            return np.mean([pass_at_k(int(n), int(s), k) for n, s in zip(c["size"], c["sum"])])
+
+        rows.append({
+            "set": es, "problems": len(ids),
+            "base pass@1": pk(bb, 1), "base pass@16": pk(bb, 16),
+            "RL pass@1": pk(rr, 1), "RL pass@16": pk(rr, 16),
+            "base no-answer": bb.extracted.isna().mean(),
+            "RL no-answer": rr.extracted.isna().mean(),
+            "base lenient-strict gap": (bb.lenient & ~bb.correct).mean(),
+            "base at cap": (bb.finish_reason == "length").mean(),
+            "RL at cap": (rr.finish_reason == "length").mean(),
+            "G": int((d.group == "G").sum()), "B": int((d.group == "B").sum()),
+            "E": int((d.group == "E").sum()),
+        })
+    acc = pd.DataFrame(rows)
+    acc.to_csv(out / "accuracy_by_set.csv", index=False)
+    md += ["## 1. Accuracy, format and groups (first 16 samples per model; 7,680-token cap)", "",
+           acc.to_markdown(index=False, floatfmt=".3f"), ""]
+    grp.to_csv(out / "problems_groups.csv", index=False)
+
+    # ---- RQ2: ledger
+    if (ART / "ledger_scores.parquet").exists():
+        sc = pd.read_parquet(ART / "ledger_scores.parquet")
+        tr = pd.read_parquet(ART / "ledger_traces.parquet")[["trace_id", "key", "correct"]]
+        sc = sc.merge(tr, on="trace_id").rename(columns={"key": "problem_id"})
+        order = [n for n, _, _ in LEDGER_CKPTS]
+        m = margins(sc, "content")
+        m["group"] = m.problem_id.map(gmap)
+        lrows = []
+        for g_ in ("G", "B", "E"):
+            for ck in order:
+                x = m[(m.group == g_) & (m.checkpoint == ck)]
+                lrows.append({"group": g_, "checkpoint": ck, "problems": len(x),
+                              "M (content margin)": _fmt(_boot_ci(x.M)),
+                              "L correct": _fmt(_boot_ci(x.L_correct), 2),
+                              "L incorrect": _fmt(_boot_ci(x.L_incorrect), 2)})
+        led = pd.DataFrame(lrows)
+        led.to_csv(out / "ledger_margins.csv", index=False)
+        md += ["## 2. Discrimination margin across the flow", "",
+               "M = mean per-token log-likelihood of correct minus incorrect RL traces on content "
+               "tokens (opening 16 tokens and answer line excluded); mean [95% bootstrap CI] "
+               "over problems.", "", led.to_markdown(index=False), ""]
+        wide = m.pivot(index="problem_id", columns="checkpoint", values="M")
+        inc = stage_increments(wide.dropna(), STAGES, start="s1_mid")
+        inc["group"] = inc.index.map(gmap)
+        stg = [s for s, _ in STAGES]
+        summ = inc.groupby("group")[stg + ["total"]].mean()
+        summ.to_csv(out / "ledger_stage_increments.csv")
+        md += ["Mean stage increments of M (they sum exactly to `total`, the change from "
+               "mid-pretraining to the final RL model):", "",
+               summ.to_markdown(floatfmt=".3f"), ""]
+        op = sc.groupby(["checkpoint", "correct"]).opening.mean().unstack()
+        md += ["Opening-token log-likelihood (first 16 tokens, all traces):", "",
+               op.reindex(order).to_markdown(floatfmt=".2f"), ""]
+        fig, ax = plt.subplots(figsize=(7, 4))
+        for g_, c in zip(("G", "B", "E"), ("C3", "C1", "C0")):
+            ys = [_boot_ci(m[(m.group == g_) & (m.checkpoint == ck)].M) for ck in order]
+            ax.errorbar(range(len(order)), [y[0] for y in ys],
+                        yerr=[[y[0] - y[1] for y in ys], [y[2] - y[0] for y in ys]],
+                        label=f"{g_}", color=c, marker="o", capsize=3)
+        ax.axhline(0, color="grey", lw=0.8)
+        ax.set_xticks(range(len(order)), order, rotation=30)
+        ax.set_ylabel("content margin M (nats/token)")
+        ax.set_title("Preference for correct over incorrect RL traces")
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(out / "ledger_margin.png", dpi=150)
+        md += ["![margin](ledger_margin.png)", ""]
+
+    # ---- RQ3: handoff
+    if (ART / "handoff_base.parquet").exists():
+        hm = pd.read_parquet(ART / "handoff_meta.parquet")
+        hb = pd.read_parquet(ART / "handoff_base.parquet")
+        probs = pd.read_parquet(ART / "problems.parquet").set_index("problem_id")
+        hb = hb.merge(hm, on="key")
+        from reachtrace.sample.grade import grade
+
+        hb["correct"] = [grade(t, probs.loc[p, "answer"]).correct
+                         for t, p in zip(hb.text, hb.problem_id)]
+        gi = grp.set_index("problem_id")
+        base_rate = gi.c_base / gi.n_base
+        hrows = []
+        for pid, d in hb.groupby("problem_id"):
+            # -0.01 is the unaided base (no prefix); 0.0 is the RL trace's first 16 tokens.
+            pts = {-0.01: (int(gi.loc[pid, "n_base"]), int(gi.loc[pid, "c_base"]))}
+            for f, dd in d.groupby("frac"):
+                pts[float(f)] = (len(dd), int(dd.correct.sum()))
+            curve = success_curve(pts)
+            hrows.append({"problem_id": pid, "group": gmap[pid],
+                          **{f"s@{k:g}": v for k, v in curve.items()},
+                          "handoff": h_of(curve, 0.25),
+                          "composition": composition_signature(curve, base_rate[pid])})
+        hd = pd.DataFrame(hrows)
+        hd.to_csv(out / "handoff_curves.csv", index=False)
+        cols = [c for c in hd.columns if c.startswith("s@")]
+        hs = hd.groupby("group")[cols].mean()
+        hs["n"] = hd.groupby("group").size()
+        hs["share h<=0.1"] = hd.groupby("group").handoff.apply(lambda s: (s <= 0.1).mean())
+        hs["share composition"] = hd.groupby("group").composition.mean()
+        md += ["## 3. Handoff map", "",
+               "Base success rate when given the first fraction of a correct RL trace's content "
+               "region (s@-0.01 = no prefix; s@0 = the RL trace's first 16 tokens only).", "",
+               hs.to_markdown(floatfmt=".3f"), ""]
+        fig, ax = plt.subplots(figsize=(6, 4))
+        for g_, c in zip(("G", "B"), ("C3", "C1")):
+            if g_ in hs.index:
+                xs = [float(k[2:]) for k in cols]
+                ax.plot(xs, hs.loc[g_, cols].to_numpy(float), marker="o", color=c, label=g_)
+        ax.set_xlabel("fraction of RL content given to the base")
+        ax.set_ylabel("base success rate")
+        ax.legend()
+        ax.set_title("Handoff: how much RL solution the base needs")
+        fig.tight_layout()
+        fig.savefig(out / "handoff.png", dpi=150)
+        md += ["![handoff](handoff.png)", ""]
+
+    (out / "README.md").write_text("\n".join(md) + "\n")
+    print("\n".join(md))
+
+
 if __name__ == "__main__":
     step = sys.argv[1]
     {"select": select, "download": download, "sample": sample, "escalate": escalate,
-     "ledger": ledger, "handoff": handoff}[step]()
+     "ledger": ledger, "handoff": handoff, "report": report}[step]()

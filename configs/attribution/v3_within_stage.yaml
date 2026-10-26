@@ -1,0 +1,61 @@
+# Plan v3 RQ4: within-stage attribution. Each stage's documents are scored at that stage's
+# own end checkpoint, with query gradients from the same checkpoint. Stages are never
+# compared with each other by gradient mass; the likelihood ledger answers that question.
+# Bins are sampled balanced; population-token-weighted results are reported as secondary.
+projection_dim: 16        # Matlin et al. 2026 used 16 (256 values per module); gate sweeps 16, 32
+unit_norm: true
+stages:
+  - stage: pretrain
+    model: allenai/Olmo-3-1025-7B
+    revisions: [stage1-step1413814]
+    max_tokens: 1024
+    sources:
+      - {source: finemath, docs: 20000, note: "not in the HCAI WebOrganizer-binned working set"}
+      - {source: arxiv, docs: 15000, note: "Proof-Pile-2 arXiv; not in the HCAI working set"}
+      - {source: stack_edu, docs: 15000, note: "not in the HCAI working set"}
+      - {source: wikipedia, docs: 5000}
+      - {source: weborganizer_math_science_edu, docs: 45000, hf_id: HCAI-Lab-GT/dolma3-data-attribution-index}
+      - {source: weborganizer_random_control, docs: 20000, hf_id: HCAI-Lab-GT/dolma3-data-attribution-index}
+  - stage: midtrain
+    model: allenai/Olmo-3-1025-7B
+    revisions: [stage2-step47684]
+    max_tokens: 1024
+    sources:   # Olmo 3 report Table 5; math-heavy, balanced within the groups below
+      - {source: dolmino_math, docs: 8000, hf_id: allenai/dolma3_dolmino_mix-100B-1025}
+      - {source: cranemath, docs: 8000}
+      - {source: megamatt, docs: 6000}
+      - {source: tinymath_mind, docs: 5000}
+      - {source: tinymath_pot, docs: 5000}
+      - {source: math_meta_reasoning, docs: 5000}
+      - {source: omr_rewrite_fullthoughts, docs: 5000}
+      - {source: qwq_reasoning_traces, docs: 5000}
+      - {source: openthoughts2_reasoning_traces, docs: 5000}
+      - {source: llama_nemotron_reasoning_traces, docs: 4000}
+      - {source: gemini_reasoning_traces, docs: 3000}
+      - {source: general_reasoning_mix, docs: 3000}
+      - {source: nemotron_synth_qa, docs: 3000}
+      - {source: tulu3_sft, docs: 3000}
+      - {source: stem_heavy_crawl, docs: 4000}
+      - {source: common_crawl_hq, docs: 4000}
+      - {source: olmocr_science_pdfs, docs: 4000}
+  - stage: longctx
+    model: allenai/Olmo-3-1025-7B
+    revisions: [stage3-step11921]
+    max_tokens: 2048
+    sources:
+      - {source: longmino_all, docs: 20000, hf_id: allenai/dolma3_longmino_mix-50B-1025, note: "split by source once its composition is verified"}
+  - stage: rl
+    model: allenai/Olmo-3.1-7B-RL-Zero-Math
+    revisions: [step_0200, step_0800, main]   # constant LR 1e-6, so scores sum (TracIn-CP)
+    max_tokens: 8192
+    sources:
+      - {source: dolci_dapo, docs: 500, hf_id: allenai/Dolci-RL-Zero-Math-7B, note: "prompts; x4 rollouts per revision"}
+      - {source: dolci_klear, docs: 500}
+      - {source: dolci_orz, docs: 500}
+      - {source: dolci_omega, docs: 500}
+  - stage: rl_placebo
+    model: allenai/Olmo-3.1-7B-RL-Zero-Math
+    revisions: [step_0200, step_0800, main]
+    max_tokens: 8192
+    sources:
+      - {source: heldout_math_prompts, docs: 700, note: "not in Dolci, embedding-distant from it, difficulty-matched"}

@@ -105,3 +105,12 @@ def test_handoff_curve_and_segments():
     single = success_curve({0.0: (16, 0), 0.25: (16, 8), 0.5: (16, 16)})
     assert not composition_signature(single, base_rate=0.0)
     assert handoff(success_curve({0.0: (8, 0)})) == float("inf")
+
+
+def test_within_stage_config_loads():
+    from reachtrace.config import WithinStageConfig, load_config
+
+    cfg = load_config("configs/attribution/v3_within_stage.yaml", WithinStageConfig)
+    assert cfg.total_docs("pretrain") == 120_000
+    assert cfg.total_docs("midtrain") == 80_000
+    assert {s.stage for s in cfg.stages} == {"pretrain", "midtrain", "longctx", "rl", "rl_placebo"}
