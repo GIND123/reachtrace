@@ -32,6 +32,7 @@ sample = ["vllm>=0.32,<0.33", "math-verify>=0.8", "datasets>=3.0"]
 attrib = ["bergson>=2.3.0", "datasets>=3.0"]
 synth = ["torch>=2.5", "transformers>=5.0", "trl>=1.0", "datasets>=3.0"]
 embed = ["sentence-transformers>=3.0"]
+remote = ["modal>=1.0"]
 dev = ["pytest>=8", "ruff>=0.6"]
 
 [project.scripts]
