@@ -36,3 +36,14 @@
 {"step": "ledger:arm_gen_mc_only", "skipped": 0, "tokens": 869540, "load_s": 61.26957869529724, "seconds": 88.40616965293884, "usd": 0.09698156810927391}
 {"step": "ledger:arm_math_code_reasoning_web", "skipped": 0, "tokens": 869540, "load_s": 84.97491812705994, "seconds": 112.15455222129822, "usd": 0.12303354378676416}
 {"step": "handoff:handoff_base", "out": "pilot/handoff_base.parquet", "samples": 512, "gen_tokens": 1731319, "load_s": 91.67468738555908, "seconds": 1188.4791235923767, "tok_per_s": 1578.5120326350832, "usd": 1.3037615985808373}
+{"step": "ledger_base:s1_mid", "skipped": 0, "tokens": 229296, "load_s": 41.745787143707275, "seconds": 50.66279911994934, "usd": 0.05557709063458443}
+{"step": "ledger_base:s1_end", "skipped": 0, "tokens": 229296, "load_s": 43.0952513217926, "seconds": 51.24129033088684, "usd": 0.05621169549298287}
+{"step": "ledger_base:s2_end", "skipped": 0, "tokens": 229296, "load_s": 39.450178384780884, "seconds": 47.58199501037598, "usd": 0.05219744852638245}
+{"step": "ledger_base:s3_end", "skipped": 0, "tokens": 229296, "load_s": 41.10363721847534, "seconds": 49.31646728515625, "usd": 0.05410016461181641}
+{"step": "ledger_base:rl_0200", "skipped": 0, "tokens": 229296, "load_s": 34.82553291320801, "seconds": 42.950979709625244, "usd": 0.0471172247414589}
+{"step": "ledger_base:rl_0800", "skipped": 0, "tokens": 229296, "load_s": 50.33428144454956, "seconds": 58.62457990646362, "usd": 0.0643111641573906}
+{"step": "ledger_base:rl_end", "skipped": 0, "tokens": 229296, "load_s": 43.66883420944214, "seconds": 52.02763056755066, "usd": 0.05707431073260308}
+{"step": "ledger_base:s1_2T", "skipped": 0, "tokens": 229296, "load_s": 43.475300550460815, "seconds": 51.85495853424072, "usd": 0.05688488951206208}
+{"step": "ledger_base:arm_round5", "skipped": 0, "tokens": 229296, "load_s": 55.29235482215881, "seconds": 63.53517484664917, "usd": 0.06969808680677414}
+{"step": "ledger_base:arm_gen_mc_only", "skipped": 0, "tokens": 229296, "load_s": 54.1117889881134, "seconds": 62.608384132385254, "usd": 0.06868139739322662}
+{"step": "ledger_base:arm_math_code_reasoning_web", "skipped": 0, "tokens": 229296, "load_s": 39.71051740646362, "seconds": 47.31190586090088, "usd": 0.05190116072940827}

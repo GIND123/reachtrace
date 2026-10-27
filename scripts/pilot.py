@@ -267,7 +267,8 @@ def _answer_start(tok, ids) -> int:
 
 
 def _pick_pairs(
-    r: pd.DataFrame, min_len: int = 256, seed: int = 0, k: int = 3
+    r: pd.DataFrame, min_len: int = 256, seed: int = 0, k: int = 3,
+    finished_only: bool = False, max_ratio: float | None = None,
 ) -> pd.DataFrame:
     """Up to k matched-length (correct, incorrect) RL trace pairs per problem.
 
@@ -284,6 +285,8 @@ def _pick_pairs(
     for pid, d in r.groupby("key"):
         cor = d[d.correct & (d.finish_reason == "stop")]
         inc = d[~d.correct]
+        if finished_only:
+            inc = inc[(inc.finish_reason == "stop") & inc.extracted.notna()]
         n_pairs = min(k, len(cor), len(inc))
         if n_pairs == 0:
             continue
@@ -295,6 +298,8 @@ def _pick_pairs(
             win = int(min(a_c, a_i, len(i.token_ids)))
             if win < min_len:
                 continue
+            if max_ratio and max(a_c, a_i) / max(min(a_c, a_i), 1) > max_ratio:
+                continue
             for row, lab in ((c, True), (i, False)):
                 rows.append({"key": pid, "pair": j, "trace_id": f"{pid}#{row.sample_idx}",
                              "correct": lab, "window": win, "full_len": int(row.n_tokens),
@@ -303,15 +308,22 @@ def _pick_pairs(
     return pd.DataFrame(rows)
 
 
-def ledger() -> None:
+def ledger(side: str = "rl") -> None:
+    """side="rl": RL traces, incorrect ones finished or truncated (the original pilot).
+    side="base": the base model's own traces, both finished, answer regions within 2x of
+    each other (2x), so the margin compares complete solutions of similar length."""
     import modal
 
     from reachtrace.prompts import get_template
     from reachtrace.remote.app import app, ledger_scores
 
     _guard()
-    traces = _pick_pairs(_load_gens("rl"))
-    traces.to_parquet(ART / "ledger_traces.parquet")
+    if side == "rl":
+        traces = _pick_pairs(_load_gens("rl"))
+    else:
+        traces = _pick_pairs(_load_gens("base"), finished_only=True, max_ratio=2.0)
+    tag = "" if side == "rl" else f"_{side}"
+    traces.to_parquet(ART / f"ledger{tag}_traces.parquet")
     n_prob = traces.key.nunique()
     print(f"{n_prob} problems, window tokens: {traces.groupby('key').window.first().describe()}")
     probs = pd.read_parquet(ART / "problems.parquet").set_index("problem_id")
@@ -333,9 +345,9 @@ def ledger() -> None:
                 print(f"[ledger:{name}] FAILED: {str(res)[:300]}")
                 _log_cost(f"ledger:{name}:failed_estimate", {"usd": 0.05})
                 continue
-            _log_cost(f"ledger:{name}", res)
+            _log_cost(f"ledger{tag}:{name}", res)
             recs += res["records"]
-    pd.DataFrame(recs).to_parquet(ART / "ledger_scores.parquet")
+    pd.DataFrame(recs).to_parquet(ART / f"ledger{tag}_scores.parquet")
 
 
 def handoff() -> None:
@@ -558,6 +570,36 @@ def report() -> None:
         fig.savefig(out / "ledger_margin.png", dpi=150)
         md += ["![margin](ledger_margin.png)", ""]
 
+    # ---- RQ2b: margin on the base model's own finished traces
+    if (ART / "ledger_base_scores.parquet").exists():
+        sb = pd.read_parquet(ART / "ledger_base_scores.parquet")
+        tb = pd.read_parquet(ART / "ledger_base_traces.parquet")
+        sb = sb.merge(tb[["trace_id", "key", "correct"]], on="trace_id")
+        sb = sb.rename(columns={"key": "problem_id"})
+        order = [n for n, _, _ in LEDGER_CKPTS]
+        arms = [n for n, _, _ in ARM_CKPTS]
+        mb = margins(sb, "content")
+        rows_b = []
+        for ck in order + arms:
+            x = mb[mb.checkpoint == ck]
+            rows_b.append({"checkpoint": ck, "problems": len(x), "M content": _fmt(_boot_ci(x.M)),
+                           "share M>0": f"{(x.M > 0).mean():.2f}",
+                           "L correct": _fmt(_boot_ci(x.L_correct), 2),
+                           "L incorrect": _fmt(_boot_ci(x.L_incorrect), 2)})
+        tbl = pd.DataFrame(rows_b)
+        tbl.to_csv(out / "ledger_base_traces_margins.csv", index=False)
+        wb = mb.pivot(index="problem_id", columns="checkpoint", values="M")
+        incb = stage_increments(wb[order].dropna(), STAGES, start="s1_mid")
+        stg = [s for s, _ in STAGES]
+        incs = incb[stg + ["total"]].agg(lambda v: _fmt(_boot_ci(v)))
+        md += ["## 2b. Margin on the base model's own finished solutions", "",
+               f"{sb.problem_id.nunique()} problems, {len(tb) // 2} pairs of *finished* base "
+               "solutions (one correct, one incorrect), answer regions within 2x in length, both "
+               "cut to the same window before the answer line. This avoids the truncation "
+               "confound of section 2.", "", tbl.to_markdown(index=False), "",
+               "Stage increments of M (mean [95% CI]):", "",
+               incs.to_frame("increment").to_markdown(), ""]
+
     # ---- RQ3: handoff
     if (ART / "handoff_base.parquet").exists():
         hm = pd.read_parquet(ART / "handoff_meta.parquet")
@@ -612,4 +654,5 @@ def report() -> None:
 if __name__ == "__main__":
     step = sys.argv[1]
     {"select": select, "download": download, "sample": sample, "escalate": escalate,
-     "ledger": ledger, "handoff": handoff, "report": report}[step]()
+     "ledger": ledger, "ledger-base": lambda: ledger("base"), "handoff": handoff,
+     "report": report}[step]()

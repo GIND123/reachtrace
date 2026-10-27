@@ -16,7 +16,11 @@
 
 5. **Ai2's midtraining data-mix arms make this causal.** From the same ~2T-token stage-1 checkpoint, 100B tokens of the math-code-reasoning mix raise correct-trace content log-likelihood by +0.59 nats/token; the general-QA mix by +0.10 (difference 0.49, 95% CI [0.47, 0.51], 35 problems). The arms are pre-release `olmo2-retrofit` checkpoints, loaded as Olmo 3 with sliding window 4096 (the config says 4097); see the caveats below.
 
-6. **There is no evidence of a content "preference" for correct over incorrect solutions at any stage.** The correct-minus-incorrect margin M looked positive (+0.09 nats/token at the end of pretraining, flat afterwards), but restricted to pairs whose incorrect trace *finished* (10 problems) M ≈ 0 at every checkpoint. The positive value came from truncated, rambling incorrect traces. RL does not change M in either analysis (stage increments ≈ 0). So the margin as designed measures fluency more than correctness; it needs finished, length-matched incorrect traces (more samples or a larger cap).
+6. **A preference for correct over incorrect content appears in midtraining, not RL.** The margin M (per-token log-likelihood of a correct minus an incorrect solution, same window, answer line excluded) needs finished incorrect solutions:
+   - On RL traces it looked positive, but most incorrect RL traces are truncated; restricted to finished ones (10 problems) M ≈ 0 everywhere. That version measured fluency.
+   - On the base model's *own finished* solutions (32 problems, 39 pairs, lengths within 2x), M is ≈ 0 after pretraining (−0.03 [−0.13, 0.08]), rises during midtraining (increment +0.146 [0.094, 0.198]) and is unchanged by long-context training and RL (RL increments ≈ 0, −0.019 late in RL).
+   - The midtraining arms reproduce this from the same ~2T start: math-code-reasoning mix M = +0.13 [0.02, 0.24], general-QA mix −0.01 [−0.11, 0.10].
+   So the model's preference for correct reasoning over flawed reasoning is learned from reasoning-heavy midtraining data; RL-Zero does not add to it.
 
 7. **The base needs a substantial part of an RL solution, not just the cue.** Given only the RL trace's first 16 tokens, base success on G problems goes 0% → 10% (B: 9% → 14%). It reaches 35% with the first quarter of the solution, 48% with half, 75% with three quarters (B: 30%, 69%, 80%). About 20% of G and B problems are handed off within the first 10% of the solution. 2 of 5 G problems show the composition signature (two separate jumps in base success).
 
@@ -37,6 +41,6 @@ Per-token changes from RL in the body are small (~0.05 nats/token), but over a ~
 ## What this means for the full study
 
 - Keep the opening/content split and the position profile: they separate cue effects from content cleanly.
-- Fix the margin: sample until each problem has finished incorrect traces, or raise the cap (32k for the long-context and RL checkpoints, 8k windows for stage-1/2).
+- Compute the margin on finished solutions only (section 2b); for RL traces, sample until each problem has finished incorrect traces, or raise the cap (32k for the long-context and RL checkpoints, 8k windows for stage-1/2).
 - The midtraining arms are the strongest causal lever available; plan for loading them properly (`olmo2-retrofit` conversion).
 - Budget: RL-Zero writes ~7,000 tokens per sample at a 7,680 cap and vLLM runs at ~1,400 generated tokens/s per H100. Sampling dominates cost: about $11.5 per 2,000 RL samples. The ledger is cheap (~$0.1 per checkpoint for ~0.6M tokens).
