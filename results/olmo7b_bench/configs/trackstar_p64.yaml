@@ -1,0 +1,28 @@
+run_path: /home/ubuntu/reachtrace/artifacts/olmo7b_bench/trackstar_p64
+steps:
+- trackstar:
+    index_cfg:
+      run_path: /home/ubuntu/reachtrace/artifacts/olmo7b_bench/trackstar_p64
+      model: allenai/Olmo-3.1-7B-RL-Zero-Math
+      precision: bf16
+      token_batch_size: 2560
+      overwrite: true
+      data:
+        dataset: /home/ubuntu/reachtrace/artifacts/olmo7b_bench/items
+        split: train
+        advantage_column: advantage
+      projection_dim: 64
+      filter_modules: lm_head
+    trackstar_cfg:
+      stats_sample_size: 256
+      mix_hessians: false
+      query:
+        dataset: /home/ubuntu/reachtrace/artifacts/olmo7b_bench/query
+        split: train
+        advantage_column: advantage
+        aggregation: none
+      preprocess_cfg:
+        unit_normalize: true
+        aggregation: none
+      score_cfg:
+        batch_size: 1024

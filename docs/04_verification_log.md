@@ -83,3 +83,24 @@ All 62 arXiv IDs in [02_literature_survey.md](02_literature_survey.md) were reso
 | "AIME 2026 Problem 1" (MathArena) vs Dolci | 13-gram overlap | **Verbatim in Dolci-RL-Zero-Math-7B row 574 with the same answer (277)**; Dolci was uploaded 2025-11-17, before the contest. A post-cutoff date does not guarantee cleanliness |
 | Omni-MATH vs Dolci | 13-gram overlap > 0.4 of the question | 13 of 60 sampled difficulty-4–6.5 problems (22%) are Dolci near-duplicates |
 | 13-gram "any shared n-gram" decon rule | pilot selection | Flags boilerplate ("where m and n are relatively prime positive integers. Find m+n"); use an overlap fraction (0.4 in the pilot) plus manual review |
+
+## Added 2026-11-01 (attribution methods after the Bergson authors' advice)
+
+| Claim | Check | Result |
+|---|---|---|
+| Bergson release | PyPI; repo at commit 15caf72 | 2.7.0; installs with torch 2.11 (cu128) / 2.15 (cu132), transformers 5.19, TRL 1.17.1 |
+| GRPO queries | `config/config.py` (`QuerySetConfig` inherits `DataConfig`) | A query set accepts `advantage_column`; the row loss is multiplied by the advantage before backward (`collector/collector.py`, `fwd_bwd`) |
+| `query.contrast` | `build.py`, `subtract_control` | Subtracts a control set's mean gradient; needs aggregation mean/sum. Described to us by the maintainer as experimental; not used |
+| Unit normalization vs advantage | `process_grads.normalize_and_aggregate_grads` | Per-row normalization runs before aggregation, so a unit-normalized GRPO query keeps only sign(A) per row. Restored by multiplying columns by \|A\| (`attrib/grpo_query.py`, tested) |
+| EK-FAC and unit normalization | `hessians/pipeline.py` | `hessian_pipeline` raises if `unit_normalize`; scores are linear in the query, so the advantage is exact |
+| Factors on a subset | `examples/pretraining_scale_attribution/build.yaml`; `hessian_pipeline` step 2 skip under `resume` | A `hessian` step on `train[:N]` writes `{run}/hessian/kfac`; `influence` with `resume: true` reads it back |
+| Two-stage candidates | `score/candidates.py` | `score_cfg.candidates.scores` may be a `query --record` CSV; rows with `direction == "Top"` give `result_index` |
+| TrackStar Hessian mixing | `cli/trackstar.py`, `TrackstarConfig.mix_hessians` | Can be disabled to precondition with the training autocorrelation alone (documented for small query sets) |
+| TrackStar p64 memory | gate v3 run | Per-module autocorrelation is (64²)² fp32 = 67 MB; 210 modules of SmolLM2-135M ≈ 14 GB (OOM on an 8 GB GPU, fine on A100-40GB) |
+| Pre-tokenized labels | `utils/worker_utils.py` | `labels` is kept with `input_ids` (`keep = {"length", "input_ids", "labels"}`), so label masks reach the loss |
+| `bergson validate` and advantages | `validate.py` (`per_doc_query_losses`, `mean_query_loss`) | Query loss is plain cross-entropy; advantages are ignored, so GRPO-query LDS needs our own retraining loop |
+| Leaderboard (GPT-2 / WikiText) | `examples/gpt2_wikitext_leaderboard/README.md` | LDS: EK-FAC 0.454, EK-FAC+ASTRA 0.605, EK-FAC+CG 0.685, TrackStar p16/p32/p64 0.120/0.194/0.276, BM25 0.220, MAGIC 0.931 |
+| Lambda Cloud API | `GET /api/v1/instance-types` | Python's default urllib User-Agent is rejected by Cloudflare (error 1010); A100-40GB SXM4 $1.99/h, GH200 $2.29/h, H100 SXM $4.29/h on 2026-11-01 |
+| Lambda A100 driver | `nvidia-smi` on the instance | CUDA 12.8 driver; the default torch wheel (cu132) fails, the cu128 wheel works |
+| SmolLM2 prompt boundary | tokenizer check | `"...)).\n\n"` alone ends in one `"\n\n"` token; inside a document followed by a word it is `"\n"`, `"\n"`. Gate prompts end in `"Solution:"` and solutions start with a space |
+| Retrain determinism (A100, SDPA) | two identical weighted-CPT runs | Identical J on the laptop GPU; checked again on the A100 in `results/gate_v3/meta.json` |
