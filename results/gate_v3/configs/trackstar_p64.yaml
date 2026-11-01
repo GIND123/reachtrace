@@ -1,0 +1,28 @@
+run_path: /home/ubuntu/reachtrace/artifacts/gate_v3/bergson/trackstar_p64
+steps:
+- trackstar:
+    index_cfg:
+      run_path: /home/ubuntu/reachtrace/artifacts/gate_v3/bergson/trackstar_p64
+      model: /home/ubuntu/reachtrace/artifacts/gate_v3/models/cpt
+      precision: fp32
+      token_batch_size: 4096
+      overwrite: true
+      data:
+        dataset: /home/ubuntu/reachtrace/artifacts/gate_v3/corpus
+        split: train
+      projection_dim: 64
+      filter_modules: lm_head
+      max_batch_size: 64
+    trackstar_cfg:
+      stats_sample_size: 10000
+      mix_hessians: false
+      query:
+        dataset: /home/ubuntu/reachtrace/artifacts/gate_v3/queries
+        split: train
+        advantage_column: advantage
+        aggregation: none
+      preprocess_cfg:
+        unit_normalize: true
+        aggregation: none
+      score_cfg:
+        batch_size: 1024

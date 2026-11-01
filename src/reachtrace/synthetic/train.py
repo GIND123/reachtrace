@@ -91,17 +91,23 @@ def grpo(
     ds = Dataset.from_list(
         [{"prompt": t["prompt"], "answer": t["answer"], "task_id": t["task_id"]} for t in tasks]
     )
+    if Path(rollout_log).exists():
+        Path(rollout_log).unlink()
     calls = itertools.count()
     Path(rollout_log).parent.mkdir(parents=True, exist_ok=True)
 
-    def reward(completions, answer, task_id, **_):
+    def reward(completions, answer, task_id, completion_ids=None, trainer_state=None, **_):
         call = next(calls)
+        step = trainer_state.global_step if trainer_state is not None else None
+        ids = completion_ids or [None] * len(completions)
         rewards = [float(verify(c, a)) for c, a in zip(completions, answer)]
         with open(rollout_log, "a") as log:
             log.writelines(
-                json.dumps({"call": call, "task_id": t, "completion": c, "answer": a, "reward": r})
+                json.dumps({"call": call, "step": step, "task_id": t, "completion": c,
+                            "completion_ids": None if i is None else list(map(int, i)),
+                            "answer": a, "reward": r})
                 + "\n"
-                for c, a, t, r in zip(completions, answer, task_id, rewards)
+                for c, i, a, t, r in zip(completions, ids, answer, task_id, rewards)
             )
         return rewards
 

@@ -93,11 +93,29 @@ class StageCorpus(BaseModel):
     sources: list[SourceQuota]
 
 
-class WithinStageConfig(BaseModel):
-    """Plan v3 RQ4: comparisons only within a stage (G vs B; Dolci vs placebo)."""
+class RerankConfig(BaseModel):
+    """Second stage of two-stage retrieval (bergson examples/pretraining_scale_attribution):
+    EK-FAC rescoring of the TrackStar top candidates, with factors fit on a subset."""
 
-    projection_dim: int = 16
+    method: Literal["ekfac", "ekfac_astra", "ekfac_cg"] = "ekfac"
+    hessian_subset: int = 30_000
+    overfetch: int = 10          # candidates per query = overfetch * top_k of interest
+    top_k: int = 1_000
+    damping: float = 0.1
+    astra_lr: float | None = None  # must be tuned per setting (gate v3 sweeps it)
+
+
+class WithinStageConfig(BaseModel):
+    """Plan v3 RQ4: comparisons only within a stage (G vs B; Dolci vs placebo).
+
+    First stage: TrackStar (autocorrelation preconditioning, unit normalization) at
+    projection 32 or 64. Queries are GRPO queries (rollouts with an advantage column).
+    """
+
+    projection_dim: int = 32
     unit_norm: bool = True
+    query: Literal["grpo"] = "grpo"
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
     stages: list[StageCorpus]
 
     def total_docs(self, stage: str) -> int:

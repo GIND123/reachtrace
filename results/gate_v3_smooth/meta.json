@@ -1,0 +1,9 @@
+{
+ "n_docs": 7200,
+ "n_problems": 16,
+ "n_dose": 0,
+ "n_leave1": 40,
+ "n_random": 0,
+ "top1pct_docs": 72,
+ "retrain_noise_max_abs_J": 0.0
+}

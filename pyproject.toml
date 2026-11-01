@@ -24,13 +24,13 @@ dependencies = [
 
 [project.optional-dependencies]
 # Each heavy stage is an extra so the analysis core stays CPU-installable.
-# vllm 0.32 pins transformers>=5.16.1,<5.20 and bergson>=2.3 needs transformers>=5.0,
+# vllm 0.32 pins transformers>=5.16.1,<5.20 and bergson>=2.7 needs transformers>=5.0,
 # so `sample` and `attrib` can share one GPU environment (verified 2026-10-22).
 grade = ["math-verify>=0.8"]
 data = ["datasets>=3.0"]
 sample = ["vllm>=0.32,<0.33", "math-verify>=0.8", "datasets>=3.0"]
-attrib = ["bergson>=2.3.0", "datasets>=3.0"]
-synth = ["torch>=2.5", "transformers>=5.0", "trl>=1.0", "datasets>=3.0"]
+attrib = ["bergson>=2.7.0", "datasets>=3.0"]
+synth = ["torch>=2.5", "transformers>=5.0", "trl>=1.16", "datasets>=3.0", "bergson>=2.7.0"]
 embed = ["sentence-transformers>=3.0"]
 remote = ["modal>=1.0"]
 dev = ["pytest>=8", "ruff>=0.6"]

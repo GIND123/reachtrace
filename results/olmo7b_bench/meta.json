@@ -1,0 +1,7 @@
+{
+ "model": "allenai/Olmo-3.1-7B-RL-Zero-Math",
+ "items": 256,
+ "completion_tokens": 2048,
+ "ekfac_layers": 4,
+ "gpu": "NVIDIA H100 PCIe, 81559 MiB"
+}

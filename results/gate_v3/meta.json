@@ -1,0 +1,10 @@
+{
+ "n_docs": 7200,
+ "n_problems": 16,
+ "n_dose": 40,
+ "n_leave1": 0,
+ "n_random": 24,
+ "top1pct_docs": 72,
+ "retrain_noise_max_abs_J": 0.0,
+ "dose_outcome_sd_mean": 9.876970834006045
+}

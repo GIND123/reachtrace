@@ -2,8 +2,25 @@
 # own end checkpoint, with query gradients from the same checkpoint. Stages are never
 # compared with each other by gradient mass; the likelihood ledger answers that question.
 # Bins are sampled balanced; population-token-weighted results are reported as secondary.
-projection_dim: 16        # Matlin et al. 2026 used 16 (256 values per module); gate sweeps 16, 32
+#
+# Methods follow the Bergson authors' advice (docs/06_attribution_methods.md):
+#  * first stage: TrackStar, autocorrelation preconditioning + unit normalization,
+#    projection 32 (leaderboard LDS 0.19; 64 gives 0.28 at 4x the Hessian memory);
+#  * second stage: EK-FAC on each query's top overfetch x top_k candidates, factors fit on
+#    a 30K-item subset of the stage's documents;
+#  * queries: GRPO queries (rollouts with Dr. GRPO advantages as `advantage_column`), which
+#    equal the correct-minus-incorrect contrast scaled by k(n-k)/n. Bergson's experimental
+#    `query.contrast` is not used. TrackStar scores are multiplied by |A| after unit
+#    normalization (attrib/grpo_query.py); EK-FAC uses the advantage natively.
+projection_dim: 32        # gate v3 compares 16 / 32 / 64
 unit_norm: true
+query: grpo
+rerank:
+  method: ekfac
+  hessian_subset: 30000
+  overfetch: 10
+  top_k: 1000
+  damping: 0.1
 stages:
   - stage: pretrain
     model: allenai/Olmo-3-1025-7B

@@ -1,4 +1,5 @@
-# Tier A attribution. Queries are fork-token spans of correct RL traces (attrib/targets.py).
+# Tier A attribution (superseded by v3_within_stage.yaml; kept for the v2 record).
+# Queries are fork-token spans of correct RL traces (attrib/targets.py).
 # Every prompt/completion index uses the identity-template tokenizer written by
 # `attrib.bergson_cmd.write_identity_tokenizer`, so prompts stay exactly as rendered.
 query_index:
@@ -8,7 +9,7 @@ query_index:
     prompt_column: prompt
     completion_column: completion
     tokenizer: artifacts/tokenizers/rlzero31_identity
-    projection_dim: 64
+    projection_dim: 32
     token_batch_size: 16384
   - name: q_rl__base
     model: allenai/Olmo-3-1025-7B
@@ -16,7 +17,7 @@ query_index:
     prompt_column: prompt
     completion_column: completion
     tokenizer: artifacts/tokenizers/rlzero31_identity
-    projection_dim: 64
+    projection_dim: 32
     token_batch_size: 16384
 rl_item_index:
   - name: dolci_items__rlzero31
@@ -24,9 +25,9 @@ rl_item_index:
     dataset: artifacts/rl/rl_items_tierA.parquet
     prompt_column: rendered_prompt
     completion_column: completion
-    advantage_column: advantage     # Dr. GRPO weighting; requires bergson>=2.3.0
+    advantage_column: advantage     # Dr. GRPO weighting; restore |A| after unit norm
     tokenizer: artifacts/tokenizers/rlzero31_identity
-    projection_dim: 64
+    projection_dim: 32
     token_batch_size: 16384
 corpus_index:
   # Streamed with `bergson score` against the query index (scores only, no gradient store).
@@ -34,13 +35,13 @@ corpus_index:
     model: allenai/Olmo-3.1-7B-RL-Zero-Math
     dataset: artifacts/corpus/tierA_sample.parquet
     prompt_column: text
-    projection_dim: 64
+    projection_dim: 32
     token_batch_size: 16384
   - name: corpus_tierA__base
     model: allenai/Olmo-3-1025-7B
     dataset: artifacts/corpus/tierA_sample.parquet
     prompt_column: text
-    projection_dim: 64
+    projection_dim: 32
     token_batch_size: 16384
 unit_norm: true
 aggregate_levels: [weborg_bin, kmeans_256, stage]
