@@ -566,11 +566,17 @@ def groundtruth(kind: str, shard: str = "0/1") -> None:
         c = CPTConfig()
         tag = f"lr{c.lr:g}_m{c.micro_docs}"
         rng = np.random.default_rng(123)
+        docs = [int(rng.integers(n)) for _ in range(2)]
         jobs = [("full", np.ones(n))]
-        for i in range(2):  # drop one random document
+        for i, d in enumerate(docs):  # drop one random document
             w = np.ones(n)
-            w[rng.integers(n)] = 0.0
+            w[d] = 0.0
             jobs.append((f"minus1_{i}", w))
+        # Local linearity: halving the same document's weight should move J by about half
+        # as much as removing it, if J is a smooth function of the weights.
+        w = np.ones(n)
+        w[docs[1]] = 0.5
+        jobs.append(("half1_1", w))
         for name, w in _shard(jobs, shard):
             _retrain_J(w, f"{tag}_{name}", "smooth")
     elif kind == "random":  # TRAK-style random half subsets, document level
@@ -1030,9 +1036,12 @@ def evaluate_rl() -> None:
         return
     im = pd.read_json(ART / "rl_items.jsonl", lines=True)
     lfo = _gt("lfo")
-    ref = lfo.get("minus_none", {}).get("rl_J")
-    effect = {t: ref - lfo[f"rl_minus_{t}"]["rl_J"] for t in ("AB", "A", "B")
-              if ref is not None and f"rl_minus_{t}" in lfo and "rl_J" in lfo[f"rl_minus_{t}"]}
+    # Ground truth is the capability lost when a prompt type is left out of GRPO (accuracy on
+    # long A-then-B); J at the RL checkpoint is as unstable as at CPT in this regime.
+    key = "rl_heldout_ab_long"
+    ref = lfo.get("minus_none", {}).get(key)
+    effect = {t: ref - lfo[f"rl_minus_{t}"][key] for t in ("AB", "A", "B")
+              if ref is not None and key in lfo.get(f"rl_minus_{t}", {})}
     rows = []
     for name in ["ts_weighted", "ts_sign_only", "ts_unweighted", "ekfac"]:
         if not (d / f"{name}.npy").exists():
@@ -1056,10 +1065,10 @@ def evaluate_rl() -> None:
     out = pd.DataFrame(rows)
     out.to_csv(OUT / "rl_items.csv", index=False)
     _write_json(OUT / "rl_items_groundtruth.json",
-                {"J_full_200_steps": ref, "drop_in_J_when_type_removed": effect,
+                {"rl_ab_long_full_200_steps": ref, "accuracy_drop_when_type_removed": effect,
                  "items_per_type": im.type.value_counts().to_dict()})
     print(out.to_string(index=False, float_format=lambda v: f"{v:.4f}"))
-    print("drop in J when an RL prompt type is removed:", effect)
+    print("accuracy lost when an RL prompt type is removed:", effect)
 
 
 def figures(res: pd.DataFrame) -> None:

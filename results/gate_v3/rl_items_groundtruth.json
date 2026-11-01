@@ -1,0 +1,17 @@
+{
+ "rl_ab_long_full_200_steps": 0.619140625,
+ "accuracy_drop_when_type_removed": {
+  "AB": 0.619140625,
+  "A": 0.619140625,
+  "B": -0.11328125
+ },
+ "items_per_type": {
+  "AB": 352,
+  "B": 80,
+  "A": 72,
+  "placebo_AB": 64,
+  "CD": 32,
+  "placebo_B": 24,
+  "placebo_A": 16
+ }
+}

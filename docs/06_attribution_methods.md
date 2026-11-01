@@ -107,3 +107,13 @@ launch if spend so far plus the requested hours would pass the budget, keeps a l
 ledger, and installs a watchdog on the instance that terminates it through the API at the
 deadline (shutting the OS down does not stop billing). Instance and SSH-key names and the
 API key come from environment variables only.
+
+## 5. Results
+
+[results/gate_v3/](../results/gate_v3/README.md) has the gate results and [results/olmo7b_bench/](../results/olmo7b_bench/README.md) the 7B costs. In short:
+
+- EK-FAC ranked the planted families the RL gain depends on correctly (ρ = 0.89). TrackStar p32 ranked the families by their effect on the query margin correctly (ρ = 0.68). Neither did both.
+- Document-level LDS stayed at or below 0.085 for every method, because single-document effects in this setting are not locally linear.
+- Subset-fit EK-FAC factors and two-stage retrieval both reproduced 90% or more of full EK-FAC's top 1%.
+
+The 7B study therefore reports source-level rankings from both stages of the recommended pipeline, not document-level effect sizes.
