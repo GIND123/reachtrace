@@ -1,6 +1,6 @@
 # Synthetic gate v3: does attribution recover ground truth under CPT → GRPO?
 
-*Run on Lambda (A100 40 GB, H100 PCIe) on 2026-11-01. Code: [scripts/gate_v3.py](../../scripts/gate_v3.py). Design and Bergson details: [docs/06_attribution_methods.md](../../docs/06_attribution_methods.md) §3.*
+*Run on Lambda (A100 40 GB, H100 PCIe) on 2026-11-01; §3b (EK-FAC + ASTRA, exact metagradients, weight scan) added the same day. Code: [scripts/gate_v3.py](../../scripts/gate_v3.py). Design and Bergson details: [docs/06_attribution_methods.md](../../docs/06_attribution_methods.md) §3.*
 
 **Question.** Before using Bergson on Olmo 3, does any method, configured as its maintainers recommend, recover *measured* ground truth in a small flow with the same structure: continued pretraining (CPT) with planted data, then GRPO, then attribution of RL solutions back to the CPT data with GRPO queries?
 
@@ -9,14 +9,15 @@
 1. **RL creates the capability, and it depends on specific pretraining data.** After CPT the model solves long A-then-B compositions 0% of the time; after GRPO, 65%. Removing family A, family B or the worked composition traces W from CPT reduces the RL gain to 0%. Name decoys and format-only documents do not matter.
 2. **At the family level, the two recommended methods get different ground truths right, and neither gets both.**
    - *What the RL gain needs.* Ranked by attribution mass, EK-FAC puts W, B, A first, the three families the RL gain cannot do without (Spearman ρ = 0.89 against the RL accuracy lost when each family is removed; exact permutation p = 0.007). Subset-fit EK-FAC gives the same ranking. TrackStar at projection 16/32/64 is near chance (ρ = −0.11 to 0.19) and ranks the name decoys above both taught operations.
-   - *What the attributed objective does.* Against the change in the objective itself when each family is removed (smooth regime), TrackStar p32 does best (ρ = 0.68, p = 0.055, all 7 signs right). EK-FAC is weaker (ρ = 0.25): it credits B as support, but removing B *raises* the correct-minus-incorrect margin by 52, even though B is necessary for the RL gain.
+   - *What the attributed objective does.* Against the change in the objective itself when each family is removed (smooth regime), **EK-FAC refined by ASTRA's conjugate-gradient solver does best** (ρ = 0.75, p = 0.033, 6 of 7 signs right, top three families exactly right), then TrackStar p32 (ρ = 0.68, p = 0.055, all 7 signs). Plain EK-FAC is weaker (ρ = 0.25): it credits B as support, but removing B *raises* the correct-minus-incorrect margin by 52, even though B is necessary for the RL gain. ASTRA's refinement fixes that (§3b).
    - Plain gradient cosine is inverted on both (ρ = −0.93, −0.64).
-3. **Document-level ground truth needs a smooth training regime, and this one was not.** At the first CPT learning rate (2e-4), removing one random document out of 7,200 changed the attributed objective by 30–100%. Every retraining-based LDS in that regime is noise (all methods ≈ 0). At learning rate 5e-5, with deterministic attention kernels, one document moves the objective by 0.4–2.6%. But halving a document's weight moved it the opposite way from removing it (+4.2 removed, −1.6 at half weight), so single-document effects are still not locally linear. On 40 leave-1%-out retrains (Bergson's leaderboard protocol), every preconditioned gradient method scores LDS ≈ 0.08 (EK-FAC 0.085, TrackStar p32 0.085, 95% intervals reaching −0.02), against ≈ 0 for gradient cosine and BM25. At the document level this setting cannot separate the recommended methods.
-4. **The two cost-saving recommendations hold.**
+3. **Document-level ground truth needs a smooth training regime, and neither regime was smooth enough.** At the first CPT learning rate (2e-4), removing one random document out of 7,200 changed the attributed objective by 30–100%. Every retraining-based LDS in that regime is noise (all methods ≈ 0). At learning rate 5e-5, with deterministic attention kernels, one document moves the objective by 0.4–2.6%. But halving a document's weight moved it the opposite way from removing it (+4.2 removed, −1.6 at half weight), so single-document effects are still not locally linear. On 40 leave-1%-out retrains (Bergson's leaderboard protocol), every preconditioned gradient method scores LDS ≈ 0.08 (EK-FAC 0.085, TrackStar p32 0.085, 95% intervals reaching −0.02), against ≈ 0 for gradient cosine and BM25. At the document level this setting cannot separate the recommended methods.
+4. **Exact metagradients show why: retraining here is deterministic but chaotic, so no first-order method can predict it at the document level (§3b).** MAGIC-style metagradients through the exact training run (replayed bit for bit, checked against finite differences) predict leave-1%-out retraining no better than the approximate methods: the predicted direction matches the measured change for 21 of 40 retrains and for 2 of 7 families, with magnitudes a median 14× too large. Changing one document's weight by 0.1% moves the objective by 5–9 units (3–5%), more than deleting that document, and as much as the spread of leave-1%-out outcomes (SD 6.7). The sensitivity builds up in the first ~130 of 675 steps (warmup and peak learning rate): the reverse pass's adjoint grows about 30× there.
+5. **The two cost-saving recommendations hold.**
    - EK-FAC factors fit on 25% of the documents reproduce full-fit EK-FAC: 97.5% / 90.5% of the same top 1% in the two regimes, and the same family ranking.
    - Two-stage retrieval (TrackStar p32 over everything, EK-FAC on each query's top 10%) keeps 75% / 90.5% of full EK-FAC's top 1%, against 34–43% for TrackStar alone.
-5. **For RL items, restoring |A| after unit normalization matters.** It changes the share of score mass by item type by up to 45% relative to Bergson's sign-only result.
-6. **Gate decision (plan v3 §4).** G1 (recovery) passes for EK-FAC at the family level. G5 (LDS ≥ 0.4) fails for every method. Under the plan's rules, the 7B study reports source-level rankings, not effect sizes, and uses agreement between the TrackStar and EK-FAC stages as the evidence (§7).
+6. **For RL items, restoring |A| after unit normalization matters.** It changes the share of score mass by item type by up to 45% relative to Bergson's sign-only result.
+7. **Gate decision (plan v3 §4).** G1 (recovery) passes for EK-FAC at the family level, and EK-FAC + CG is the best method on the family-level effects on the objective. G5 (LDS ≥ 0.4) fails for every method, exact metagradients included, because document-level retraining is chaotic here. Under the plan's rules, the 7B study reports source-level rankings, not effect sizes, and uses agreement between the TrackStar and EK-FAC stages as the evidence (§7). The first such 7B run is in [../olmo7b_midtrain/](../olmo7b_midtrain/README.md).
 
 ## 1. Setup
 
@@ -139,6 +140,61 @@ Read together with §2: EK-FAC's family ranking (W, B, A first) is the same in b
 
 Retraining determinism needed two fixes, both of which the gate caught: the flash and memory-efficient attention backward passes are not deterministic (PyTorch only warns under `warn_only`), and changed J by 5% between identical runs on the A100. The math backend is. And the prompt must end in a token that appears the same way inside training documents (a SmolLM2 prompt ending in a blank line does not).
 
+## 3b. EK-FAC + ASTRA, exact metagradients, and why document-level LDS stays low
+
+Everything here is in the smooth regime (CPT learning rate 5e-5), against the same 40 leave-1%-out retrains and family removals as §3. Tables: [../gate_v3_smooth/methods_total.csv](../gate_v3_smooth/methods_total.csv), [methods.csv](../gate_v3_smooth/methods.csv), [magic_linearity.csv](../gate_v3_smooth/magic_linearity.csv), [astra_total_objective.csv](../gate_v3_smooth/astra_total_objective.csv).
+
+**EK-FAC + ASTRA.** Both of ASTRA's solvers start from the EK-FAC solution, with the leaderboard's settings ([docs/06](../../docs/06_attribution_methods.md)).
+
+- *Momentum SGD* (300 steps, 16 documents per step), run on the summed query of all problems. The step size was chosen by the leaderboard's rule: the lowest final / |step-0| objective, never LDS. Step sizes of 3e-6 and above diverged (1e-4 and 3e-5 to NaN), as on the leaderboard (1e-5 and above). The selected 1e-6 (objective 6.8e11 → 3.8e10) and 3e-7 reached LDS 0.02 and 0.04 on the summed objective J_total, below plain EK-FAC (0.16).
+- *Conjugate gradients* (20 steps on 256 documents, damping 10), per problem. Every objective started positive (the EK-FAC solution overshoots) and fell by more than 99.8%; 11 of 16 ended negative, e.g. 1.5e8 → −6.7e5. It took 72 minutes on an A100 for 16 queries, including the factor fit. The result is the best family-level attribution in the gate:
+
+| Method | ρ against family-removal effects on J | permutation p | signs right | ranking |
+|---|---:|---:|---:|---|
+| **EK-FAC + ASTRA (CG)** | **0.75** | **0.033** | **6/7** | **A D W** B M C F |
+| TrackStar p32 | 0.68 | 0.055 | 7/7 | W A M D B C F |
+| EK-FAC | 0.25 | 0.30 | 4/7 | W B A D M C F |
+| exact metagradient (MAGIC) | −0.29 | 0.75 | 2/7 | W B F A C M D |
+| *measured* | | | | *A D W M F C B* |
+
+The refinement mostly reorders the families plain EK-FAC gets wrong. EK-FAC credits B as the second strongest support for J and scores D and M as opposing it; with CG, A, D and W lead, as in the retraining. B, whose removal actually *raises* J, is CG's one wrong sign, but it drops from second to fourth.
+
+At the document level the solvers do not separate from anything else. Per-query leave-1%-out LDS is 0.02 [−0.06, 0.10] for CG against 0.085 for EK-FAC. On J_total, the sum of the 16 CG columns gives 0.16, the same as EK-FAC; a single CG solve on the summed query (which did not converge in 20 steps) gives 0.33 [0.00, 0.63]. Two CG variants of one target differing by 0.17 is the same story as below: at this level, 40 retrains cannot rank methods.
+
+**Exact metagradients (MAGIC).** `synthetic/magic.py` differentiates J through all 675 AdamW steps of `train_cpt`: a forward pass with checkpoints every 26 steps, then a reverse pass that recomputes each segment and applies the adjoint of each AdamW update, with one double backward per micro-batch for the Hessian-vector product and dJ/dw_d. It is exact by construction, and it is checked two ways:
+
+- On tiny models the replay is bit-identical to `train_cpt`, and the metagradients match float64 finite differences to 1e-9.
+- At scale, the replayed run reproduces the original run's J_total exactly (162.391751).
+
+One reverse pass computed six targets (J_total, J_p for four problems, the plain objective) in 101 minutes on an A100. Bergson's own MAGIC trains with its own trainer and ignores advantages, so it could not attribute this run's GRPO objective.
+
+| | exact metagradient | best approximate method |
+|---|---:|---:|
+| LDS on J_total, 40 leave-1%-out retrains | 0.22 [−0.12, 0.52] | 0.16–0.33 (EK-FAC and the CG variants) |
+| per-query LDS, 4 problems | 0.04 | 0.17 (TrackStar p32), 0.11 (EK-FAC) |
+| plain objective summed over problems | 0.22 [−0.10, 0.51] | 0.21 (TrackStar p32), 0.18 (EK-FAC) |
+| predicted direction of the change in J, 40 retrains | 21/40 | |
+| family-removal signs | 2/7 | 6/7 (EK-FAC + CG) |
+| size of predicted vs measured change (median ratio) | 14× too large | |
+
+Because MAGIC predicts the change in J itself, its error can be read off directly. Taken with the fact that it is the exact derivative of the attributed run, this says the ground truth is not first-order predictable here, whatever the method.
+
+**Why: the run is chaotic at the scale of single documents.** Retraining with one document's weight set to values near 1:
+
+| weight of document 4912 | 0 (removed) | 0.5 | 0.9 | 0.99 | 0.999 | **1** | 1.001 | 1.01 | 1.1 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| change in J_total | +4.18 | −1.57 | −0.58 | +3.87 | **+8.94** | 0 | **+5.15** | +5.87 | +3.17 |
+| exact metagradient × (weight − 1) | −0.74 | −0.37 | −0.07 | −0.007 | −0.001 | 0 | +0.001 | +0.007 | +0.07 |
+
+A 0.1% change to one of 7,200 documents moves J by 5–9 (3–5%), more than removing the document, and in the same direction whichever way the weight moves. The run is deterministic (identical weights give identical J), so this is not noise but sensitivity to initial conditions. The metagradient's reverse pass shows where it comes from: the adjoint's norm is ~4–6 × 10³ over most of the run, then grows to 2.8 × 10⁴ by step 130 and 1.3 × 10⁵ by step 26, so perturbations in the warmup and peak-learning-rate steps are amplified about 30× by the end. Any retraining, including a leave-1%-out one, picks up a jump of this size on top of the data's systematic effect. With leave-1%-out outcomes spread by SD 6.7, the systematic part is at most a fraction of what LDS correlates against. Family removals (effects of 11–93) stand well above the floor, which is why family-level ground truth works and document-level ground truth does not.
+
+![MAGIC against retraining](../gate_v3_smooth/magic.png)
+
+**Consequences.**
+
+- G5 (document-level LDS ≥ 0.4) is not reachable in this setup by any first-order method, exact or approximate. Before a document-level LDS is used as a gate, the retraining map should pass a weight-scan check like the one above: small perturbations must give small, proportional changes. Bergson's MAGIC module ships a metasmoothness diagnostic for its own trainer; the leaderboard's GPT-2 fine-tune scores 0.989 on it.
+- The ASTRA recommendation holds where the ground truth is measurable: CG refinement turns EK-FAC from the weakest preconditioned method on family-level effects into the best. Momentum SGD, with its step size tuned as recommended, did not help here.
+
 ## 4. Two-stage retrieval and subset-fit factors
 
 Share of full EK-FAC's top 1% (72 documents per query, mean over the 16 queries) that each cheaper method also puts in its top 1%:
@@ -178,20 +234,22 @@ Margin M (per-token log-likelihood of correct minus incorrect query rollouts) al
 
 - *G1 (recovery).* Passes for EK-FAC at the family level (the necessary families ranked first; p = 0.007). Fails for TrackStar, BM25 and gradient cosine.
 - *G3 (format).* Passes for EK-FAC and TrackStar p16/p32: they rank the format-only family F last or second to last in both regimes. Gradient cosine ranks it second or third, and BM25 second.
-- *G5 (LDS ≥ 0.4, lower bound > 0).* Fails for every method. Best is 0.085 [−0.02, 0.18].
+- *G5 (LDS ≥ 0.4, lower bound > 0).* Fails for every method, including exact metagradients (§3b). Per-query best is 0.085 [−0.02, 0.18]. A weight scan shows retraining is chaotic at the single-document scale, so this gate cannot be met in this setup.
 
 The plan's rule for G5 failing alone applies: **7B attribution is reported as rankings, not as calibrated effect sizes.**
 
-- **Use the two-stage pipeline, and read the two stages as two views.** TrackStar p32 over everything, EK-FAC (factors on a ~30K subset) on the top candidates, exactly as recommended. Here EK-FAC tracked what the RL capability needs and TrackStar tracked how families move the query margin. A source that both rank highly is the claim to make; a source only one ranks highly is flagged. EK-FAC is the expensive stage at 7B ([../olmo7b_bench/](../olmo7b_bench/README.md)).
+- **Use the two-stage pipeline, and read the two stages as two views.** TrackStar p32 over everything, EK-FAC (factors on a ~30K subset) on the top candidates, exactly as recommended. Here EK-FAC tracked what the RL capability needs, and TrackStar and EK-FAC + CG tracked how families move the query margin. Where the budget allows, refine the EK-FAC stage with ASTRA's CG solver (about 4.5 minutes per query at 135M). A source that both rank highly is the claim to make; a source only one ranks highly is flagged. EK-FAC is the expensive stage at 7B ([../olmo7b_bench/](../olmo7b_bench/README.md)).
 - **Report source- and bin-level results, never single documents.** Document-level LDS was noise at learning rate 2e-4 and capped at about 0.08 for every recommended method at 5e-5, because single-document effects were not locally linear in either.
 - **GRPO queries work as the contrastive query** and are directly supported by Bergson. For TrackStar, restore |A| after unit normalization; for RL items it changes the type shares by up to 45%.
-- **Before trusting any retraining ground truth, check smoothness:** compare a one-document removal and a half-weight change with the effects being measured, and force deterministic attention kernels.
+- **Before trusting any retraining ground truth, check smoothness:** retrain with one document's weight at 0.999 / 1.001 / 0.5 / 0 and compare the changes with the effects being measured, and force deterministic attention kernels.
 
 ## Caveats
 
 - One model size (135M), one seed, 16 query problems. Family-level tests have 7 points.
 - The capability ground truth comes from the learning-rate-2e-4 flow, whose CPT model is the one attributed in §2. The smooth regime has no GRPO run of its own.
-- EK-FAC + ASTRA was not completed. The momentum-SGD solver needs its step size tuned per setting (the leaderboard swept 1e-3 to 1e-7), and sweeps did not fit the budget. The conjugate-gradient solver ran at about 6 minutes per query on an A100, and both attempts (one on an H100 that its spend watchdog terminated at the deadline) were stopped before finishing all 16 queries. Lambda spend for the whole build was about $30 of the $50 budget.
+- EK-FAC + ASTRA's momentum-SGD solver was swept on the summed query only (one solve per step size); CG was run per problem. ASTRA was run in the smooth regime only, so it has no capability ground truth.
+- MAGIC's per-query comparison covers 4 of the 16 problems, and the weight scan covers one document.
+- Lambda spend for the whole build was $53.81 (first pass about $30, §3b and the 7B midtraining run the rest).
 - The family-level comparison in §3 uses the smooth-regime CPT model, and §2 the learning-rate-2e-4 model. EK-FAC's family ranking is the same in both; TrackStar's is not.
 - EK-FAC for RL items used factors from only 640 items.
 
@@ -209,6 +267,9 @@ python scripts/gate_v3.py evaluate
 export GATE_ART=artifacts/gate_v3_smooth CPT_LR=5e-5 CPT_MICRO_DOCS=16   # smooth regime (same corpus and queries)
 python scripts/gate_v3.py cpt && python scripts/gate_v3.py attribute && python scripts/gate_v3.py groundtruth leave1
 python scripts/gate_v3.py evaluate
+GATE_ASTRA_STEPS=300 python scripts/gate_v3.py attribute ekfac_cg,ekfac_astra_total_lr1e-06,ekfac_astra_total_lr3e-07   # §3b
+GATE_MAGIC_PROBLEMS=4 python scripts/gate_v3.py magic && python scripts/gate_v3.py groundtruth eps
+python scripts/gate_v3.py evaluate_total
 ```
 
 The Bergson YAML of every method run is written next to its outputs (`$GATE_ART/bergson/*.yaml`); the TrackStar p64 ones are copied in [configs/](configs/).

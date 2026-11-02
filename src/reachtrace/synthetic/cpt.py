@@ -41,6 +41,7 @@ class CPTConfig:
     max_len: int = 256
     weight_decay: float = 0.0
     max_grad_norm: float | None = None
+    adam_eps: float = 1e-8  # torch's default, which the gate runs used
     seed: int = 0
     micro_docs: int = int(os.environ.get("CPT_MICRO_DOCS", 8))
 
@@ -113,7 +114,7 @@ def train_cpt(
     model.config.use_cache = False
     model.train()
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, betas=(0.9, 0.95),
-                            weight_decay=cfg.weight_decay)
+                            weight_decay=cfg.weight_decay, eps=cfg.adam_eps)
     batches = schedule(len(docs), cfg.epochs, cfg.batch_docs, cfg.seed)
     n_steps = len(batches)
 

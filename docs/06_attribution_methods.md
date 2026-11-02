@@ -116,4 +116,8 @@ API key come from environment variables only.
 - Document-level LDS stayed at or below 0.085 for every method, because single-document effects in this setting are not locally linear.
 - Subset-fit EK-FAC factors and two-stage retrieval both reproduced 90% or more of full EK-FAC's top 1%.
 
+- EK-FAC refined by ASTRA's conjugate-gradient solver is the best method against family-level effects on the objective (ρ = 0.75, p = 0.033, 6 of 7 signs). ASTRA's momentum-SGD solver, with its step size tuned by the objective as on the leaderboard, did not improve on EK-FAC.
+- Exact metagradients through the bit-exact training run do no better at the document level. A weight scan shows why: changing one document's weight by 0.1% moves the objective by 3–5%, so document-level retraining is chaotic here.
+- At 7B ([results/olmo7b_midtrain/](../results/olmo7b_midtrain/README.md)), the plain rollout query ranks midtraining sources reliably (split-half 0.83; QwQ reasoning traces first). The GRPO contrast does not pass the reliability gate (TrackStar 0.05, EK-FAC 0.20).
+
 The 7B study therefore reports source-level rankings from both stages of the recommended pipeline, not document-level effect sizes.

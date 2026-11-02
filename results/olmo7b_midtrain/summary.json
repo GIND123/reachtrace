@@ -1,0 +1,23 @@
+{
+ "n_problems": 19,
+ "n_query_rows": 152,
+ "n_docs": 2880,
+ "split_half_spearman": 0.050691304347826094,
+ "split_half_spearman_brown": 0.09649133696655206,
+ "generic_split_half_spearman": 0.8257478260869564,
+ "generic_split_half_spearman_brown": 0.9045584656198055,
+ "contrast_vs_generic_spearman": 0.13391304347826086,
+ "engagement_split_half_spearman": 0.9657521739130434,
+ "engagement_excess_vs_generic_spearman": -0.05652173913043478,
+ "mcr_minus_qa": 0.010112874738059094,
+ "mcr_minus_qa_perm_p": 0.222,
+ "ekfac_split_half_spearman": 0.19923478260869562,
+ "ekfac_vs_trackstar_source_spearman": 0.3017391304347826,
+ "ekfac_vs_trackstar_doc_spearman": 0.16899218426466905,
+ "ekfac_mcr_minus_qa": 0.0044101093615889425,
+ "top10pct_overlap": 0.1782608695652174,
+ "timing_s": {
+  "trackstar_p32": 1474.7072274684906,
+  "ekfac_scores": 1890.1595315933228
+ }
+}

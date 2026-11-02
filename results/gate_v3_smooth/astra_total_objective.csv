@@ -1,0 +1,8 @@
+key,objective_step0,objective_final,final_over_abs_step0,selected
+ekfac_astra_total_lr1e-04,683111000000.0,,,False
+ekfac_astra_total_lr1e-05,683111000000.0,inf,inf,False
+ekfac_astra_total_lr1e-06,683111000000.0,38327900000.0,0.056107865339600736,True
+ekfac_astra_total_lr3e-05,683111000000.0,,,False
+ekfac_astra_total_lr3e-06,683111000000.0,3.77615e+19,55278717.51443031,False
+ekfac_astra_total_lr3e-07,683111000000.0,74384900000.0,0.10889138075656811,False
+ekfac_cg_total,28183400000.0,27930300.0,0.0009910195363227999,False

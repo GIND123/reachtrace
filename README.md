@@ -20,6 +20,7 @@ Results so far:
 - [results/pilot/](results/pilot/README.md): exploratory behavioural pilot on Olmo 3 (likelihood ledger, margin, handoff).
 - [results/gate_v3/](results/gate_v3/README.md): the synthetic gate for attribution under CPT → GRPO, with ground truth measured by retraining.
 - [results/olmo7b_bench/](results/olmo7b_bench/README.md): cost and memory of the recommended pipeline on Olmo-3.1-7B-RL-Zero-Math.
+- [results/olmo7b_midtrain/](results/olmo7b_midtrain/README.md): first 7B within-stage attribution (midtraining stage): which Dolmino sources RL-Zero's solutions draw on, with GRPO queries, TrackStar and EK-FAC.
 
 ## Documents
 
@@ -35,6 +36,7 @@ Results so far:
 | [results/pilot/](results/pilot/README.md) | Exploratory pilot on Olmo 3 (small n, 7,680-token cap) |
 | [results/gate_v3/](results/gate_v3/README.md) | Synthetic gate v3: which attribution method recovers retraining ground truth under CPT → GRPO |
 | [results/olmo7b_bench/](results/olmo7b_bench/README.md) | Throughput and memory of TrackStar and EK-FAC at 7B |
+| [results/olmo7b_midtrain/](results/olmo7b_midtrain/README.md) | 7B within-stage attribution for the midtraining stage (19 problems, 24 Dolmino sources) |
 
 ## Layout
 
@@ -54,7 +56,8 @@ src/reachtrace/
   attrib/             Bergson pipeline YAMLs (TrackStar, EK-FAC, ASTRA, two-stage), GRPO queries,
                       RL-item scoring, retraining-based evaluation (LDS, QLD), BM25, controls
   synthetic/          planted-fragment corpora (v2, v3 with name decoys), composition tasks,
-                      deterministic weighted CPT for ground truth, GRPO with exact rollout logs
+                      deterministic weighted CPT for ground truth, exact metagradients through
+                      it (MAGIC), GRPO with exact rollout logs
   analysis/           bootstrap, stratified permutation, BH, TOST, MDE, CEM matching, proximity
 configs/              model pair, attribution tier A, synthetic gate
 tests/                runs on CPU in seconds

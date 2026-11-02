@@ -10,7 +10,7 @@ cd ~/reachtrace
 [ -d ~/venv ] || uv venv --python 3.11 ~/venv
 source ~/venv/bin/activate
 uv pip install -e ".[dev]" "bergson==2.7.0" "trl>=1.16" "transformers>=5.16,<5.20" \
-  datasets matplotlib
+  datasets matplotlib zstandard
 # The default torch wheel targets CUDA 13; drivers older than 580 need the cu128 build
 # (installed last, so nothing above replaces it).
 DRIVER_MAJOR=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | cut -d. -f1)

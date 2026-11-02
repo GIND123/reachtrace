@@ -294,11 +294,21 @@ def _problem_ranges() -> list[tuple[str, int, int]]:
     return out
 
 
-def _bergson(yaml_path: Path) -> float:
+def _bergson(yaml_path: Path, log: Path | None = None) -> float:
+    """Run a Bergson pipeline; with `log`, also keep its output (ASTRA logs its objective)."""
     cmd = [sys.executable, "-m", "bergson", str(yaml_path)]
     print("+", " ".join(cmd), flush=True)
     t0 = time.time()
-    subprocess.run(cmd, check=True)
+    if log is None:
+        subprocess.run(cmd, check=True)
+        return time.time() - t0
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    with proc, open(log, "w") as f:
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            f.write(line)
+    if proc.returncode:
+        raise subprocess.CalledProcessError(proc.returncode, cmd)
     return time.time() - t0
 
 
@@ -309,16 +319,19 @@ def _load(path: Path) -> tuple[np.ndarray, np.ndarray | None]:
     return np.asarray(s[:], dtype=np.float64).reshape(len(s), -1), s.candidates
 
 
-def _save_scores(name: str, scores: np.ndarray, seconds: float, **meta) -> None:
-    d = ART / f"scores{QS}"
+def _save_scores(name: str, scores: np.ndarray, seconds: float, sub: str = "",
+                 **meta) -> None:
+    """Scores under scores{QS}{sub}/: one column per problem in scores/, other targets
+    (the summed query of all problems, MAGIC's targets) in their own directories."""
+    d = ART / f"scores{QS}{sub}"
     d.mkdir(parents=True, exist_ok=True)
     np.save(d / f"{name}.npy", scores)
     _write_json(d / f"{name}.json", {"seconds": seconds, **meta})
     print(f"[{name}] scores {scores.shape} in {seconds:.0f}s", flush=True)
 
 
-def _done(name: str) -> bool:
-    return (ART / f"scores{QS}" / f"{name}.npy").exists()
+def _done(name: str, sub: str = "") -> bool:
+    return (ART / f"scores{QS}{sub}" / f"{name}.npy").exists()
 
 
 def attribute(only: str = "") -> None:
@@ -395,10 +408,21 @@ def attribute(only: str = "") -> None:
             by.merge_query_indices([qdir / f"p{j:02d}" for j in range(len(ranges))], out)
         return str(out)
 
+    def total_query() -> str:
+        """All problems' query gradients summed into one row: the query of J_total."""
+        out = qdir / "total"
+        if not (out / "info.json").exists():
+            _bergson(by.write_pipeline(root / "query_total.yaml", str(qdir), [{"build": {
+                "index_cfg": by.index_cfg(str(out), model, query, token_batch_size=tbs,
+                                          max_batch_size=mbs),
+                "preprocess_cfg": {"aggregation": "sum", "unit_normalize": False}}}]))
+        return str(out)
+
     def ekfac_family(name: str, subset: int | None, astra: dict | None = None,
                      damping: float = 0.1, hessian_from: str | None = None,
                      candidates: str | None = None, top_k: int = 0,
-                     own: dict[int, np.ndarray] | None = None) -> None:
+                     own: dict[int, np.ndarray] | None = None, query_path: str = "",
+                     sub: str = "") -> None:
         shared = root / (hessian_from or f"{name}_factors")
         sec = 0.0
         if not (shared / "hessian" / "kfac").exists():
@@ -407,14 +431,14 @@ def attribute(only: str = "") -> None:
                                      token_batch_size=tbs, max_batch_size=mbs)])
             sec += _bergson(y)
         t0 = time.time()
-        q = {"path": merged_query()}
+        q = {"path": query_path or merged_query()}
         rp = root / name
         by.link_hessian(rp, shared)
         cand = by.candidates_cfg(candidates, top_k) if candidates else None
         y = by.write_pipeline(root / f"{name}.yaml", str(rp), [by.influence_step(
             str(rp), model, train, q, damping=damping, astra=astra, candidates=cand,
             aggregation="none", token_batch_size=tbs, max_batch_size=mbs)])
-        _bergson(y)
+        _bergson(y, log=root / f"{name}.log")
         sec += time.time() - t0  # includes the shared query build on its first use
         s, cand_rows = _load(rp / "scores")
         if cand_rows is not None:  # two-stage: each problem keeps EK-FAC on its own candidates
@@ -425,7 +449,8 @@ def attribute(only: str = "") -> None:
                 mask[own[j]] = False
                 full[mask, j] = np.nan
             s = full
-        _save_scores(name, s, sec, subset=subset, astra=astra, damping=damping, top_k=top_k)
+        _save_scores(name, s, sec, sub=sub, subset=subset, astra=astra, damping=damping,
+                     top_k=top_k)
 
     if run("ekfac"):
         ekfac_family("ekfac", None)
@@ -440,6 +465,23 @@ def attribute(only: str = "") -> None:
         if run(name):
             ekfac_family(name, None, hessian_from="ekfac_factors", astra=by.astra_cfg(
                 lr, num_steps=int(os.environ.get("GATE_ASTRA_STEPS", 300))))
+
+    # EK-FAC + ASTRA on J_total's query (one solve per setting instead of one per problem).
+    # The step size is chosen by the logged objective (lowest final / |step-0|, diverged
+    # runs excluded), as for the leaderboard's ekfac_astra.yaml, never by LDS.
+    def run_total(name: str) -> bool:
+        return (want is None or name in want) and not _done(name, "_total")
+
+    if run_total("ekfac_cg_total"):
+        ekfac_family("ekfac_cg_total", None, astra=by.ASTRA_CG, damping=by.ASTRA_CG_DAMPING,
+                     hessian_from="ekfac_factors", query_path=total_query(), sub="_total")
+    for lr in [float(x) for x in os.environ.get(
+            "GATE_ASTRA_TOTAL_LRS", "1e-4,3e-5,1e-5,3e-6,1e-6,3e-7").split(",")]:
+        name = f"ekfac_astra_total_lr{lr:.0e}"
+        if run_total(name):
+            ekfac_family(name, None, hessian_from="ekfac_factors", astra=by.astra_cfg(
+                lr, num_steps=int(os.environ.get("GATE_ASTRA_STEPS", 300))),
+                query_path=total_query(), sub="_total")
 
     # Two-stage retrieval: TrackStar over everything, EK-FAC on each problem's top 10%.
     # The first stage is p32 by default: p64's per-module autocorrelation Hessians for the
@@ -579,6 +621,19 @@ def groundtruth(kind: str, shard: str = "0/1") -> None:
         jobs.append(("half1_1", w))
         for name, w in _shard(jobs, shard):
             _retrain_J(w, f"{tag}_{name}", "smooth")
+    elif kind == "eps":  # J against one document's weight near 1: at what scale is it linear?
+        from reachtrace.synthetic.cpt import CPTConfig
+
+        c = CPTConfig()
+        rng = np.random.default_rng(123)
+        doc = [int(rng.integers(n)) for _ in range(2)][1]  # `smooth`'s document d1
+        jobs = []
+        for w_d in [0.9, 0.99, 0.999, 1.001, 1.01, 1.1]:
+            w = np.ones(n)
+            w[doc] = w_d
+            jobs.append((f"lr{c.lr:g}_m{c.micro_docs}_d{doc}_w{w_d:g}", w))
+        for name, w in _shard(jobs, shard):
+            _retrain_J(w, name, "eps")
     elif kind == "random":  # TRAK-style random half subsets, document level
         rng = np.random.default_rng(CFG["seed"] + 99)
         masks = rng.random((int(os.environ.get("GATE_RANDOM_SUBSETS", 24)), n)) < 0.5
@@ -1156,12 +1211,255 @@ def plain_queries() -> None:
     m.to_json(ART / "queries_plain.jsonl", orient="records", lines=True)
     print(f"{len(keep)} correct rollouts over {m.problem_id.nunique()} problems")
 
+# ------------------------------------------------------------------------------- MAGIC
+
+
+def magic() -> None:
+    """Exact metagradients (MAGIC) of the gate objectives through the weighted CPT run.
+
+    One reverse pass gives dJ/dw_d for several targets: J_total (the GRPO objective summed
+    over problems), J_p for the first GATE_MAGIC_PROBLEMS problems (per-query LDS), and the
+    plain objective (log-likelihood of the correct rollouts). The replayed final model must
+    reproduce the original run's J exactly; that is checked and recorded.
+    """
+    import torch
+    from datasets import load_from_disk
+    from transformers import AutoModelForCausalLM
+
+    from reachtrace.synthetic.cpt import CPTConfig
+    from reachtrace.synthetic.magic import metagradients
+
+    rows, adv, prob = _query_rows()
+    reward = np.asarray(load_from_disk(str(ART / "queries"))["reward"])
+    problems = sorted(_query_meta().problem_id.unique())
+    targets = {"total": adv}
+    for p in problems[: int(os.environ.get("GATE_MAGIC_PROBLEMS", 4))]:
+        targets[f"J:{p}"] = adv * (prob == p)
+    targets["plain_total"] = (reward > 0).astype(float)
+    seg = int(os.environ.get("GATE_MAGIC_SEGMENT", 0)) or None
+    scores, info = metagradients(
+        CFG["model"], _corpus()["input_ids"], CPTConfig(), rows,
+        np.column_stack(list(targets.values())), device=_device(), segment=seg,
+        hvp_docs=int(os.environ.get("GATE_MAGIC_HVP_DOCS", 8)), ckpt_dir=ART / "magic_ckpt",
+        log=lambda m: print(m, flush=True))
+    out = ART / "scores_magic"
+    out.mkdir(parents=True, exist_ok=True)
+    np.save(out / "magic.npy", scores)  # first, before anything that could fail
+    model = AutoModelForCausalLM.from_pretrained(CFG["model"], dtype=torch.float32)
+    model.load_state_dict(info.pop("final_state"))
+    model = model.to(_device()).eval()
+    J = _score_J(model)
+    ref = _gt("leave1").get("full") or _gt("noise").get("full_a")
+    exact = None if ref is None else bool(all(J[p] == ref["J"][p] for p in problems))
+    ref_total = "n/a" if ref is None else round(sum(ref["J"].values()), 6)
+    print(f"[magic] replay J_total {J.sum():.6f}; original run {ref_total}; exact: {exact}")
+    if not (ART / "models" / "cpt").exists():
+        model.save_pretrained(ART / "models" / "cpt")
+        _tok().save_pretrained(ART / "models" / "cpt")
+    _save_scores("magic", scores, info.pop("seconds"), sub="_magic", targets=list(targets),
+                 J_replay=J.to_dict(), replay_exact=exact, **info)
+
+
+def evaluate_total() -> None:
+    """All methods against the same targets: J_total and the plain objective summed over
+    problems (leave-1%-out retrains), J_p on MAGIC's problems, family-removal effects, and
+    MAGIC's predicted change in J against the measured change (its first-order error)."""
+    import re
+
+    from scipy.stats import pearsonr, spearmanr
+
+    from reachtrace.attrib.evaluate import lds_summary
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    fam = np.asarray(_corpus()["family"])
+    n = len(fam)
+    problems = sorted(_query_meta().problem_id.unique())
+    reward = np.asarray(_query_meta().reward)
+    l1 = {k: v for k, v in _gt("leave1").items() if k.startswith("l")}
+    names = sorted(l1)
+    W = np.load(ART / "leave1_masks.npy")[[int(k[1:]) for k in names]].astype(float)
+    Y = np.array([[l1[k]["J"][p] for p in problems] for k in names])
+    Yt = Y.sum(1)
+    Yplain = np.array([np.asarray(l1[k]["lp"])[reward > 0].sum() for k in names])
+    Jt_full = sum(_gt("leave1")["full"]["J"].values())
+    lfo_runs = _gt("lfo")
+    dJ_fam = {}
+    if "minus_none" in lfo_runs:
+        dJ_fam = {f: lfo_runs["minus_none"]["cpt_J"] - lfo_runs[f"minus_{f}"]["cpt_J"]
+                  for f in FAMILIES if f"minus_{f}" in lfo_runs}
+    rng = np.random.default_rng(0)
+
+    def agg_lds(pred_scores: np.ndarray, y: np.ndarray) -> tuple[float, float, float]:
+        pred = W @ pred_scores
+        r = spearmanr(pred, y)[0]
+        bs = [spearmanr(pred[i], y[i])[0]
+              for i in (rng.integers(0, len(y), len(y)) for _ in range(2000))]
+        return r, *np.nanpercentile(bs, [2.5, 97.5])
+
+    def npys(sub: str) -> list[Path]:
+        d = ART / f"scores{sub}"
+        return sorted(d.glob("*.npy")) if d.exists() else []
+
+    # Methods: per-problem columns (summed for J_total), single-column total-query runs,
+    # plain-objective runs, and MAGIC's targets.
+    total, plain, per_problem = {}, {}, {}
+    for f in npys(""):
+        s = np.load(f)
+        if np.isfinite(s).all():
+            total[f.stem] = s.sum(1)
+            per_problem[f.stem] = s
+    for f in npys("_plain"):
+        s = np.load(f)
+        if np.isfinite(s).all():
+            plain[f.stem] = s.sum(1)
+    astra = []
+    for f in npys("_total"):
+        total[f.stem] = np.load(f)[:, 0]
+        log = ART / "bergson" / f"{f.stem}.log"
+        obj = [float(x) for x in re.findall(r"query 0 step \d+: objective (\S+)",
+                                            log.read_text())] if log.exists() else []
+        astra.append({"key": f.stem, "objective_step0": obj[0] if obj else np.nan,
+                      "objective_final": obj[-1] if obj else np.nan,
+                      "final_over_abs_step0": obj[-1] / abs(obj[0]) if obj else np.nan})
+    mg, meta, mprobs = None, {}, []
+    if (ART / "scores_magic" / "magic.npy").exists():
+        mg = np.load(ART / "scores_magic" / "magic.npy")
+        meta = json.loads((ART / "scores_magic" / "magic.json").read_text())
+        tg = meta["targets"]
+        total["magic"] = mg[:, tg.index("total")]
+        plain["magic"] = mg[:, tg.index("plain_total")]
+        mprobs = [t[2:] for t in tg if t.startswith("J:")]
+        per_problem["magic"] = np.column_stack([mg[:, tg.index(f"J:{p}")] for p in mprobs])
+    if astra:
+        a = pd.DataFrame(astra)
+        # Lowest final / |step-0| among runs that did not diverge (the objective fell).
+        ok = a[np.isfinite(a.final_over_abs_step0) & (a.objective_final < a.objective_step0)
+               & a.key.str.contains("_lr")]
+        best = ok.loc[ok.final_over_abs_step0.idxmin(), "key"] if len(ok) else None
+        a["selected"] = a.key == best
+        a.to_csv(OUT / "astra_total_objective.csv", index=False)
+
+    rows = []
+    for m, s in total.items():
+        r = {"key": m, "method": m if m.endswith("_total") or m == "magic" else _label(m)}
+        r["lds_total"], r["lds_total_lo"], r["lds_total_hi"] = agg_lds(s, Yt)
+        if m in plain:
+            r["lds_plain"], r["lds_plain_lo"], r["lds_plain_hi"] = agg_lds(plain[m], Yplain)
+        if mprobs and m in per_problem:
+            cols = [problems.index(p) for p in mprobs]
+            pp = per_problem[m] if m == "magic" else per_problem[m][:, cols]
+            r["lds_magic_problems"] = lds_summary(pp, W, Y[:, cols])["lds"]
+        if dJ_fam:
+            fs = list(dJ_fam)
+            r["rho_family_dJ"] = spearmanr([s[fam == f].sum() for f in fs],
+                                           [dJ_fam[f] for f in fs])[0]
+        rows.append(r)
+    res = pd.DataFrame(rows).sort_values("lds_total", ascending=False)
+    res.to_csv(OUT / "methods_total.csv", index=False)
+    print(res.round(3).to_string(index=False))
+    if mg is None:
+        return
+
+    # MAGIC predicts the change in J itself, so its first-order error can be read off
+    # directly: leave-1%-out retrains, family removals, and the single-document checks.
+    s = total["magic"]
+    lin = [{"kind": "leave-1%", "name": k, "pred": -s[W[i] == 0].sum(),
+            "actual": Yt[i] - Jt_full} for i, k in enumerate(names)]
+    for f, d in dJ_fam.items():
+        lin.append({"kind": "family", "name": f, "pred": -s[fam == f].sum(), "actual": -d})
+    probe = np.random.default_rng(123)  # the documents `groundtruth smooth` perturbed
+    docs = [int(probe.integers(n)) for _ in range(2)]
+    for key, v in _gt("smooth").items():
+        hit = re.search(r"(minus1|half1)_(\d)$", key)
+        if hit:
+            d = docs[int(hit.group(2))]
+            frac = 1.0 if hit.group(1) == "minus1" else 0.5
+            lin.append({"kind": "one document" if frac == 1 else "half weight",
+                        "name": f"doc {d}", "w": 1 - frac, "pred": -frac * s[d],
+                        "actual": sum(v["J"].values()) - Jt_full})
+    for key, v in _gt("eps").items():  # one document's weight near 1
+        hit = re.search(r"_d(\d+)_w([\d.]+)$", key)
+        d, w = int(hit.group(1)), float(hit.group(2))
+        lin.append({"kind": "weight scan", "name": f"doc {d}", "w": w,
+                    "pred": (w - 1) * s[d], "actual": sum(v["J"].values()) - Jt_full})
+    lin = pd.DataFrame(lin)
+    lin.to_csv(OUT / "magic_linearity.csv", index=False)
+    l1r = lin[lin.kind == "leave-1%"]
+    summ = {"pearson_leave1": pearsonr(l1r.pred, l1r.actual)[0],
+            "slope_leave1": float(np.polyfit(l1r.pred, l1r.actual, 1)[0]),
+            "replay_exact": meta.get("replay_exact"), "J_total_full": Jt_full,
+            "seconds": meta.get("seconds")}
+    _write_json(OUT / "magic_summary.json", summ)
+    print(lin.round(3).to_string(index=False))
+    print(summ)
+    magic_figure(lin)
+
+
+def magic_figure(lin: pd.DataFrame) -> None:
+    """MAGIC's first-order prediction of the change in J_total against retraining."""
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    ink, muted, grid, blue, orange = "#0b0b0b", "#52514e", "#e4e3df", "#2a78d6", "#eb6834"
+    plt.rcParams.update({"font.size": 9, "axes.edgecolor": muted, "axes.labelcolor": ink,
+                         "xtick.color": muted, "ytick.color": muted, "axes.spines.top": False,
+                         "axes.spines.right": False})
+    fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.4))
+
+    def style(ax, title, xlabel, ylabel):
+        ax.axhline(0, color=muted, lw=0.8)
+        ax.axvline(0, color=muted, lw=0.8)
+        ax.set_title(title, fontsize=9, color=ink)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        ax.grid(color=grid, lw=0.6)
+        ax.set_axisbelow(True)
+
+    # Independent axes: the predictions are two orders of magnitude larger than the changes.
+    d = lin[lin.kind == "leave-1%"]
+    ax = axes[0]
+    ax.plot(d.pred, d.actual, "o", color=blue, ms=5, mec="white", mew=1.0)
+    slope = np.polyfit(d.pred, d.actual, 1)[0]
+    ax.text(0.03, 0.95, f"Pearson {np.corrcoef(d.pred, d.actual)[0, 1]:.2f}\n"
+            f"least-squares slope {slope:.3f}", transform=ax.transAxes, va="top",
+            fontsize=8, color=ink)
+    style(ax, "40 leave-1%-out retrains", "MAGIC prediction of the change in J",
+          "measured change in J")
+    d = lin[lin.kind == "family"]
+    ax = axes[1]
+    ax.plot(d.pred, d.actual, "o", color=blue, ms=6, mec="white", mew=1.0)
+    for _, e in d.iterrows():
+        ax.annotate(e["name"], (e.pred, e.actual), xytext=(4, 3), textcoords="offset points",
+                    fontsize=8, color=ink)
+    style(ax, "removing one planted family (600 docs)", "MAGIC prediction of the change in J",
+          "measured change in J")
+    d = lin[lin.kind.isin(["one document", "half weight", "weight scan"])]
+    ax = axes[2]
+    if len(d):
+        doc = d.name.mode()[0]
+        d = pd.concat([d[d.name == doc], pd.DataFrame([{"w": 1.0, "actual": 0.0}])])
+        d = d.sort_values("w")  # with the full run itself at weight 1
+        ax.plot(d.w - 1, d.actual, "o-", color=blue, ms=5, mec="white", mew=1.0, lw=1.2,
+                label="retrained")
+        x = np.linspace(-1, 0.1, 50)
+        tangent = (d.pred / (d.w - 1)).dropna().iloc[0]
+        ax.plot(x, tangent * x, "--", color=orange, lw=1.2, label="MAGIC tangent")
+        ax.set_xscale("symlog", linthresh=1e-3)
+        ax.legend(frameon=False, fontsize=8, loc="best")
+        style(ax, f"one document's weight ({doc})", "weight − 1 (symlog)",
+              "change in J")
+    fig.tight_layout()
+    fig.savefig(OUT / "magic.png", dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
 
 STAGES = {
     "prepare": prepare, "tasks": make_tasks, "cpt": cpt, "skill": skill, "grpo": grpo,
     "queries": queries, "attribute": attribute, "groundtruth": groundtruth, "ledger": ledger,
     "rl_items": rl_items, "rl_attribute": rl_attribute, "evaluate": evaluate,
-    "plain_queries": plain_queries,
+    "plain_queries": plain_queries, "magic": magic, "evaluate_total": evaluate_total,
 }
 
 if __name__ == "__main__":

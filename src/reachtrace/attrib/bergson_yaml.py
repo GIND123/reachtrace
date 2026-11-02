@@ -108,10 +108,14 @@ def kfac_hessian_step(run_path: str, model: str, train: dict, subset: int | None
 def influence_step(
     run_path: str, model: str, train: dict, query: dict, damping: float = 0.1,
     astra: dict | None = None, candidates: dict | None = None, aggregation: str = "sum",
-    **index_kw,
+    score_kw: dict | None = None, **index_kw,
 ) -> dict:
-    """EK-FAC influence of every training row (or only `candidates`) on one query set."""
-    score_cfg = {"batch_size": 1024}
+    """EK-FAC influence of every training row (or only `candidates`) on one query set.
+
+    `score_kw` goes into `score_cfg`, e.g. `query_batch_size` (one pass over the training
+    data per batch of queries, for query rows too large to hold on the GPU together).
+    """
+    score_cfg = {"batch_size": 1024, **(score_kw or {})}
     if candidates:
         score_cfg["candidates"] = candidates
     pipe = {"resume": True, "query": {**query, "aggregation": aggregation},

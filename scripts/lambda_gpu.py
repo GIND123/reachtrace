@@ -11,7 +11,8 @@
     python scripts/lambda_gpu.py cost
 
 `up` refuses to launch if the spend so far plus `--hours` at the instance price would pass
-BUDGET_USD, and installs a watchdog on the instance that terminates it through the API at
+the budget (LAMBDA_BUDGET_USD, default $50), and installs a watchdog on the instance that
+terminates it through the API at
 the end of `--hours` (`extend` moves the deadline, still within the budget).
 """
 
@@ -27,7 +28,7 @@ from pathlib import Path
 
 from reachtrace.remote import lambda_cloud as lc
 
-BUDGET_USD = 50.0
+BUDGET_USD = float(os.environ.get("LAMBDA_BUDGET_USD", 50.0))
 # One state file per instance; LAMBDA_SLOT selects which (default slot 1).
 SLOT = os.environ.get("LAMBDA_SLOT", "1")
 STATE = Path("artifacts/lambda") / ("current.json" if SLOT == "1" else f"current_{SLOT}.json")
@@ -78,11 +79,12 @@ def cmd_extend(a):
     print(f"deadline now {time.strftime('%H:%M', time.localtime(new))}")
 
 
-def cmd_push(_):
+def cmd_push(a):
+    """Tracked and untracked-but-not-ignored files, plus any ignored `--extra` paths."""
     s = _state()
     files = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"],
                            capture_output=True, text=True,
-                           check=True).stdout.split()
+                           check=True).stdout.split() + list(a.extra)
     tar = subprocess.Popen(["tar", "czf", "-", *files], stdout=subprocess.PIPE)
     subprocess.run(lc.ssh_cmd(s["ip"], "mkdir -p reachtrace && tar xzf - -C reachtrace"),
                    stdin=tar.stdout, check=True)
@@ -131,7 +133,8 @@ def main():
     up.add_argument("--region", default="")
     ex = sub.add_parser("extend")
     ex.add_argument("--hours", type=float, required=True)
-    sub.add_parser("push")
+    ps = sub.add_parser("push")
+    ps.add_argument("--extra", nargs="*", default=[], help="ignored paths to send as well")
     pl = sub.add_parser("pull")
     pl.add_argument("remote")
     pl.add_argument("local")
