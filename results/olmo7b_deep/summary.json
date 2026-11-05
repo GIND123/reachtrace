@@ -1,0 +1,80 @@
+{
+ "n_problems": 4,
+ "n_rollouts": 256,
+ "n_docs": 1440,
+ "n_chunks": 3556,
+ "tokens_docs": 2911371,
+ "tokens_rollouts": 1679359,
+ "chunk_mean/contrast_all": {
+  "within_doc_rho": 0.10667277112462437,
+  "within_src_rho": 0.1702391304347826,
+  "null_doc_rho": 0.0027133157100555864,
+  "cross_problem_doc_rho": 0.023197482439415187,
+  "n_problems": 4
+ },
+ "chunk_mean/contrast_finished": {
+  "within_doc_rho": 0.06186070824204681,
+  "within_src_rho": 0.18571594202898548,
+  "null_doc_rho": 0.000362636259558953,
+  "cross_problem_doc_rho": -0.00026997880389495623,
+  "n_problems": 3
+ },
+ "chunk_mean/contrast_finished_lenctl": {
+  "within_doc_rho": 0.05259544398008808,
+  "within_src_rho": 0.1750724637681159,
+  "null_doc_rho": 8.256842821837036e-05,
+  "cross_problem_doc_rho": 0.008781964218839913,
+  "n_problems": 3
+ },
+ "chunk_mean/finished_vs_capped": {
+  "within_doc_rho": 0.13637644181016248,
+  "within_src_rho": 0.016395652173913047,
+  "null_doc_rho": -0.0030738246664999496,
+  "cross_problem_doc_rho": 0.09408779936075713,
+  "n_problems": 3
+ },
+ "chunk_mean/plain_rollout": {
+  "within_doc_rho": 0.8922028252067219,
+  "within_src_rho": 0.8817206521739129,
+  "null_doc_rho": NaN,
+  "cross_problem_doc_rho": 0.5100908245090353,
+  "n_problems": 4
+ },
+ "first_chunk/contrast_all": {
+  "within_doc_rho": 0.11499587968792424,
+  "within_src_rho": 0.08738152173913041,
+  "null_doc_rho": 0.0009017106775534324,
+  "cross_problem_doc_rho": 0.02991096907143356,
+  "n_problems": 4
+ },
+ "first_chunk/contrast_finished": {
+  "within_doc_rho": 0.05330949664686754,
+  "within_src_rho": 0.006676811594202896,
+  "null_doc_rho": -0.002825538163893362,
+  "cross_problem_doc_rho": 0.007862285036252857,
+  "n_problems": 3
+ },
+ "first_chunk/contrast_finished_lenctl": {
+  "within_doc_rho": 0.047788925190507474,
+  "within_src_rho": 0.05469999999999999,
+  "null_doc_rho": -0.0014494231384035046,
+  "cross_problem_doc_rho": 0.014357996786156714,
+  "n_problems": 3
+ },
+ "first_chunk/finished_vs_capped": {
+  "within_doc_rho": 0.15361956481085412,
+  "within_src_rho": 0.08787246376811596,
+  "null_doc_rho": 0.003419795807514696,
+  "cross_problem_doc_rho": 0.09315159429464316,
+  "n_problems": 3
+ },
+ "first_chunk/plain_rollout": {
+  "within_doc_rho": 0.9007248724821754,
+  "within_src_rho": 0.9059641304347826,
+  "null_doc_rho": NaN,
+  "cross_problem_doc_rho": 0.5322444749978713,
+  "n_problems": 4
+ },
+ "contrast_all_vs_finished_vs_capped_rho": 0.39314391173135316,
+ "chunk_mean_vs_first_chunk_plain_rho": 0.8017201282649152
+}

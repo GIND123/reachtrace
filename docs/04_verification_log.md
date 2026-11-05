@@ -118,5 +118,7 @@ All 62 arXiv IDs in [02_literature_survey.md](02_literature_survey.md) were reso
 | Retraining chaos (smooth regime) | `groundtruth eps`: one document's weight at 0.9–1.1 | Weight 0.999 / 1.001 moves J_total by +8.9 / +5.2, more than removing the document (+4.2); MAGIC's tangent predicts ±0.001 |
 | ASTRA SGD step size | summed query, 300 steps | Diverges at ≥ 3e-6 (as the leaderboard at ≥ 1e-5); objective falls at 1e-6 and 3e-7 |
 | ASTRA CG | 16 per-problem queries, 20 steps, damping 10 | Every objective fell by > 99.8%; 11 of 16 ended negative; 72 min on an A100 with the factor fit |
+| vLLM fp8 KV cache, Olmo 3 7B, 2×H100 | 0.11.0, `kv_cache_dtype="fp8"`, one engine per GPU | 219,904 KV tokens per GPU (26.8 concurrent 8k requests); 1,880–1,910 generated tokens/s per GPU at a 7,680-token cap |
+| TrackStar on 2 GPUs | Bergson 2.7.0 uses every visible GPU by default (`nproc_per_node`) | 2.91M chunk tokens + 1.68M rollout tokens in 8.4 min on 2×H100 |
 | EK-FAC memory at 7B | H100 80 GB, last 4 layers | Factors OOM at an 8,192-token batch (eigenvalue correction holds per-document gradients); fine at 2,048. 19 full-gradient query rows (~3 GB each, fp32) need `score_cfg.query_batch_size` |
 | Stage-2 checkpoint context | Bergson on `stage2-step47684` | Rejects `token_batch_size` above 8,192 (the checkpoint's max length) |

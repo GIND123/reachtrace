@@ -1,0 +1,9 @@
+{
+ "within_doc_rho": 0.02202582553851017,
+ "n_problems": 14,
+ "null_doc_rho": -0.00023172167779890633,
+ "null_doc_sd": 0.008393673180334625,
+ "cross_problem_doc_rho": 0.001282638861978071,
+ "contrast_vs_finished_contrast_rho": 0.6026185751305724,
+ "n_problems_finished_both": 4
+}

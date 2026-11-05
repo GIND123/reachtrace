@@ -21,6 +21,7 @@ Results so far:
 - [results/gate_v3/](results/gate_v3/README.md): the synthetic gate for attribution under CPT → GRPO, with ground truth measured by retraining.
 - [results/olmo7b_bench/](results/olmo7b_bench/README.md): cost and memory of the recommended pipeline on Olmo-3.1-7B-RL-Zero-Math.
 - [results/olmo7b_midtrain/](results/olmo7b_midtrain/README.md): first 7B within-stage attribution (midtraining stage): which Dolmino sources RL-Zero's solutions draw on, with GRPO queries, TrackStar and EK-FAC.
+- [results/olmo7b_deep/](results/olmo7b_deep/README.md): few problems, many rollouts. With 64 rollouts per problem and chunked documents, each problem's correct-minus-incorrect contrast replicates within the problem, and different problems' contrasts do not agree.
 
 ## Documents
 
@@ -37,6 +38,7 @@ Results so far:
 | [results/gate_v3/](results/gate_v3/README.md) | Synthetic gate v3: which attribution method recovers retraining ground truth under CPT → GRPO |
 | [results/olmo7b_bench/](results/olmo7b_bench/README.md) | Throughput and memory of TrackStar and EK-FAC at 7B |
 | [results/olmo7b_midtrain/](results/olmo7b_midtrain/README.md) | 7B within-stage attribution for the midtraining stage (19 problems, 24 Dolmino sources) |
+| [results/olmo7b_deep/](results/olmo7b_deep/README.md) | The 7B contrast within a problem: 4 problems × 64 rollouts, finished-only and length-controlled contrasts, chunked documents |
 
 ## Layout
 

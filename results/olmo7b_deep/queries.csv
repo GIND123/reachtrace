@@ -1,0 +1,5 @@
+problem_id,n,correct,finished_correct,finished_incorrect,capped_incorrect,median_tokens_finished
+aime26/default/16,64.0,54.0,53.0,10.0,0.0,5172.0
+math500/default/test/counting_and_probability/765.json,64.0,15.0,15.0,30.0,19.0,5365.0
+omni_math/default/2055,64.0,34.0,16.0,4.0,26.0,6860.0
+omni_math/default/943,64.0,48.0,24.0,3.0,13.0,6848.0

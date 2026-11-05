@@ -1,0 +1,27 @@
+run_path: /home/ubuntu/reachtrace/artifacts/olmo7b_deep/trackstar_p32
+steps:
+- trackstar:
+    index_cfg:
+      run_path: /home/ubuntu/reachtrace/artifacts/olmo7b_deep/trackstar_p32
+      model: allenai/Olmo-3-1025-7B
+      precision: bf16
+      token_batch_size: 8192
+      overwrite: true
+      data:
+        dataset: /home/ubuntu/reachtrace/artifacts/olmo7b_deep/chunks
+        split: train
+      projection_dim: 32
+      filter_modules: lm_head
+      revision: stage2-step47684
+    trackstar_cfg:
+      stats_sample_size: 10000
+      mix_hessians: false
+      query:
+        dataset: /home/ubuntu/reachtrace/artifacts/olmo7b_deep/queries
+        split: train
+        aggregation: none
+      preprocess_cfg:
+        unit_normalize: true
+        aggregation: none
+      score_cfg:
+        batch_size: 1024
